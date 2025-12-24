@@ -1,0 +1,23 @@
+{
+    "Range": [1800, 4400],
+    "RISE": true,
+    "Sections": 
+    [
+        {
+            "range": [1800, 1870],
+            "lanes": [2, 1, 3],
+            "@lanes": ["Passing", "Driving", "Entrance"],
+            "_comment": "Morinomiya Junction entrance (From median to shoulder, right to left in Japan)",
+            "seperation": -1,
+            "type": "On-ramp"
+        },
+        {
+            "range": [1870, 4400],
+            "lanes": [2, 1],
+            "@lanes": ["Passing", "Driving"],
+            "_comment": "Operation section of Moving Light Guidance System",
+            "seperation": 2,
+            "type": "Road-seperate"
+        }
+    ]
+}

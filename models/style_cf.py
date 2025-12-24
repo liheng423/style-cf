@@ -1,0 +1,153 @@
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+
+class TransfollowerStyleToDecoder(nn.Module):
+    """
+    Transformer model that incorporates a style embedding token into both the encoder and decoder inputs.
+    """
+    def __init__(self, transfollower_config, d_model=256, num_encoder_layers=1, num_decoder_layers=1):
+        super(TransfollowerStyleToDecoder, self).__init__()
+        self.d_model = d_model
+        self.settings = transfollower_config
+
+        enc_in, dec_in = transfollower_config["enc_in"], transfollower_config["dec_in"]
+
+        self.transformer = nn.Transformer(
+            d_model=d_model,
+            nhead=8,
+            num_encoder_layers=num_encoder_layers,
+            num_decoder_layers=num_decoder_layers,
+            dim_feedforward=1024,
+            dropout=0,
+            activation='relu',
+            batch_first=True,
+        )
+
+        # Embedding layers
+        self.enc_emb = nn.Linear(enc_in, d_model)
+        self.dec_emb = nn.Linear(dec_in, d_model)
+        self.style_proj = nn.Linear(d_model, d_model)  # Projection for style embedding
+
+        self.out_proj = nn.Linear(d_model, 1)
+
+        # Positional embeddings
+        self.positional_embedding = nn.Embedding(self.settings["seq_len"] + self.settings["pred_len"], d_model)
+        # Initialization
+        nn.init.normal_(self.enc_emb.weight, 0, .02)
+        nn.init.normal_(self.dec_emb.weight, 0, .02)
+        nn.init.normal_(self.out_proj.weight, 0, .02)
+        nn.init.normal_(self.positional_embedding.weight, 0, .02)
+        nn.init.normal_(self.style_proj.weight, 0, .02)
+
+    def forward(self, x):
+        """
+        x: tuple(enc_inp, dec_inp, d_style)
+        - enc_inp: (B, T_enc, enc_in)
+        - dec_inp: (B, T_dec, dec_in)
+        - d_style: (B, d_model)
+        """
+        enc_inp, dec_inp, d_style = x
+        B, T_enc = enc_inp.shape[0], enc_inp.shape[1]
+        T_dec = dec_inp.shape[1]
+
+        device = enc_inp.device
+
+        # === Style token ===
+        style_token = self.style_proj(d_style).unsqueeze(1)  # (B, 1, D), no positional encoding added
+
+        # === Encoder input ===
+        enc_pos = torch.arange(0, T_enc).to(device)
+        enc_embed = self.enc_emb(enc_inp) + self.positional_embedding(enc_pos)[None, :, :]  # (B, T_enc, D)
+
+        enc_embed = torch.cat([style_token, enc_embed], dim=1)
+
+        # === Decoder input ===
+        dec_pos = torch.arange(T_enc - self.settings["label_len"], T_enc + self.settings["pred_len"]).to(device)
+        dec_embed = self.dec_emb(dec_inp) + self.positional_embedding(dec_pos)[None, :, :]  # (B, T_dec, D)
+
+        # Concatenate style token at the beginning of the decoder sequence
+        dec_embed = torch.cat([style_token, dec_embed], dim=1)  # (B, T_dec+1, D)
+        # dec_embed = style_token + dec_embed
+
+        # === Transformer forward ===
+        transformer_out = self.transformer(
+            src=enc_embed,
+            tgt=dec_embed,
+            tgt_mask=self.transformer.generate_square_subsequent_mask(T_dec).to(device),
+            tgt_is_causal=True,
+        )  # (B, T_dec+1, D)
+
+        # Output projection
+        out = self.out_proj(transformer_out)  # (B, T_dec+1, 1)
+
+        # Only take the predictions for the last `pred_len` time steps (excluding the style token)
+        return out[:, -self.settings["pred_len"]:, :].squeeze(2)  # (B, pred_len)
+
+class StyleEmbedder(nn.Module):
+    """
+    Style embedding module using a Transformer encoder.
+    """
+    def __init__(self, input_dim, embed_dim=256, num_heads=8, num_layers=2):
+        super().__init__()
+        self.input_proj = nn.Linear(input_dim, embed_dim)
+
+        encoder_layer = nn.TransformerEncoderLayer(d_model=embed_dim, nhead=num_heads)
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+
+        # Use Linear to aggregate the time dimension (e.g., T time steps -> 1 embedding)
+        self.time_fc = nn.Linear(embed_dim, 1)  # Score each time step
+        self.output_proj = nn.Linear(embed_dim, embed_dim)
+
+    def forward(self, x):
+        """
+        x: (B, T, input_dim)
+        """
+        x = self.input_proj(x)         # (B, T, E)
+        x = x.permute(1, 0, 2)         # (T, B, E) for transformer
+        x = self.transformer(x)        # (T, B, E)
+        x = x.permute(1, 0, 2)         # (B, T, E)
+
+        # Time-weighted average: Use a Linear layer to calculate attention weights (similar to Attention Pooling)
+        attn_weights = torch.softmax(self.time_fc(x).squeeze(-1), dim=1)  # (B, T)
+        x = (x * attn_weights.unsqueeze(-1)).sum(dim=1)  # Weighted sum, (B, E)
+
+        x = self.output_proj(x)        # Optional further mapping
+        return F.normalize(x, p=2, dim=1)
+
+
+
+class StyleTransformer(nn.Module):
+    """
+    Transformer model that integrates style embeddings into car-following predictions.
+    """
+    def __init__(self, transfollower_config, embed_dim=256, num_heads=8, num_enc_layers=1, num_dec_layers=1):
+        super().__init__()
+        input_dim = 4
+        self.embedder = StyleEmbedder(input_dim, embed_dim, num_heads, num_enc_layers)
+        self.transfollower = TransfollowerStyleToDecoder(transfollower_config, d_model=embed_dim,
+                                                num_encoder_layers=num_enc_layers,
+                                                num_decoder_layers=num_dec_layers)
+        self.use_dummy_style = False
+        self.embed_dim = embed_dim
+
+    def forward(self, x):
+        """
+        x: tuple(enc_inp, dec_inp, style)
+        - enc_inp: (B, T_enc, enc_in)
+        - dec_inp: (B, T_dec, dec_in)
+        - style: (B, d_model)
+        """
+        
+        enc_inp, dec_inp, style = x
+        B = enc_inp.size(0)
+
+        if self.use_dummy_style:
+            d_style = torch.randn(B, self.embed_dim, device=enc_inp.device)  # Dummy random vector
+        else:
+            d_style = self.embedder(style)  # Use real style embedding
+
+        accs = self.transfollower((enc_inp, dec_inp, d_style))
+        return accs, d_style
