@@ -1,14 +1,18 @@
+import os, sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass, field
-from processor import *
-from schema import *
-from tableutils import *
+from dataprocess.processor import *
+from dataprocess.schema import *
+from dataprocess.tableutils import *
 from tqdm import tqdm
 from collections import namedtuple
-from typing import Any, Dict
+from typing import Any, Dict, Callable
 import random
-from filters import VehicleFilter
+from dataprocess.filters import VehicleTimeFilter, filter_data
 # %% ================ Single DataPoint (VehicleTime) Extraction ====================
 @dataclass(slots=True)
 class VehicleTime:
@@ -16,15 +20,14 @@ class VehicleTime:
     ### identifier ###
     id: int
     time: float
-
-
     ### user-defined fields ###
     extras: Dict[str, Any] = field(default_factory=dict)
     
     def __init__(self, id, time, **extras):
         self.id = id
         self.time = time
-        self.extras = extras
+        # Filter out Col.ID and Col.TIME from extras to avoid replication
+        self.extras = {k: v for k, v in extras.items() if k not in [Col.ID, Col.TIME]}
     
     def __eq__(self, other):
         if isinstance(other, VehicleTime) or other is None:
@@ -33,14 +36,14 @@ class VehicleTime:
     
     def __bool__(self):
         """Returns False if dummy_vehicletime, otherwise True."""
-        return self is not None and self != dummy_vehicletime
+        return self is not None and self.id != -1
     
     def __getitem__(self, key: str):
         if key in self.extras:
             return self.extras[key]
 
-        if hasattr(self, key):
-            return getattr(self, key)
+        if hasattr(self, key.lower()):
+            return getattr(self, key.lower())
         
         raise KeyError(f"VehicleTime has no field '{key}'")
     
@@ -52,8 +55,7 @@ class VehicleTime:
     
     
 
-# VehicleTimes are not tracked, to ensure the dataformat is consistent
-dummy_vehicletime = VehicleTime(-1, -1, None)
+
 
 Neighbors = namedtuple("Neighbor", ["left_front", "left_rear", "right_front", "right_rear"])
 
@@ -78,6 +80,8 @@ class VehicleTimeExtractor:
         self.col_to_extract = col_to_extract
         self.veh_sort_graph = {} # for speeding-up the extraction
         self.rise = True
+        # VehicleTimes are not tracked, to ensure the dataformat is consistent
+        self.dummy_vt = VehicleTime(-1, -1, **{col: -1 for col in col_to_extract if col not in [Col.ID, Col.TIME]})
 
     def _validation(self):
         assert self.process_result.rise == True
@@ -100,7 +104,7 @@ class VehicleTimeExtractor:
         time_end = self.dataframe.index.get_level_values(Col.TIME).max()
 
         for time in tqdm(decimal_arange(time_start, time_end, self.process_result.resolution)):
-            for lane in self.layout.mainstream:
+            for lane in self.layout["mainstream"]:
                 lane_df = lookup(self.dataframe, None, time).loc[lambda df: df[Col.LANE] == lane]
                 if self.rise:
                     self.veh_sort_graph[(time, lane)] = lane_df.sort_values(Col.KILO)
@@ -109,7 +113,7 @@ class VehicleTimeExtractor:
 
     def _get_veh(self, id, time) -> VehicleTime:
         
-        assert isinstance(id, int)
+        assert isinstance(id, (int, np.number))
         assert isinstance(time, (float, int))
             
         datapoint = lookup(self.dataframe, id, time)
@@ -117,7 +121,11 @@ class VehicleTimeExtractor:
         assert datapoint is not None, "This key doesn't exist in the data"
         # assert datapoint[Col.SPD] >= 0, str(datapoint[Col.SPD])
 
-        return VehicleTime(datapoint.name[0], datapoint.name[1], datapoint.name[1], {col_name: datapoint[col_name] for col_name in self.col_to_extract})
+        # Filter out index names from columns to extract to prevent KeyError
+        cols_to_get = [c for c in self.col_to_extract if c not in self.dataframe.index.names]
+        extras_dict = {col_name: datapoint[col_name] for col_name in cols_to_get}
+
+        return VehicleTime(datapoint.name[0], datapoint.name[1], **extras_dict)
 
     def _query_leader(self, time, lane, kilo, n):
         """
@@ -157,27 +165,28 @@ class VehicleTimeExtractor:
 
             vehicles = []
             for _, front_vehicle in front_vehicles.iterrows():
-                vehicles.append(VehicleTime(front_vehicle.name[0], front_vehicle.name[1], {col_name: front_vehicle[col_name] for col_name in self.col_to_extract}, 
-                                        front_vehicle[Col.LC]))
+                cols_to_get = [c for c in self.col_to_extract if c not in self.dataframe.index.names]
+                extras_dict = {col_name: front_vehicle[col_name] for col_name in cols_to_get}
+                vehicles.append(VehicleTime(front_vehicle.name[0], front_vehicle.name[1], **extras_dict))
             if len(front_vehicles) == n:
                 return vehicles
             else:
                 assert len(front_vehicles) < n
                 num_padding = n - len(vehicles)
-                return vehicles + [dummy_vehicletime for _ in range(num_padding)]
+                return vehicles + [self.dummy_vt for _ in range(num_padding)]
         
         else:
             assert front_vehicles.empty
-            return [dummy_vehicletime for _ in range(n)]
+            return [self.dummy_vt  for _ in range(n)]
     
     def _find_rear_vehicle(self, kilo, now_time, lane) -> VehicleTime:
         return self._find_front_vehicle(kilo, now_time, lane, not self.rise)
 
     def find_leader(self, veh: VehicleTime) -> VehicleTime:
-        return self._find_front_vehicle(veh["kilo"], veh["time"], veh.lane)[0]
+        return self._find_front_vehicle(veh[Col.KILO], veh[Col.TIME], veh[Col.LANE])[0]
     
     def find_follower(self, veh: VehicleTime) -> VehicleTime:
-        return self._find_rear_vehicle(veh["kilo"], veh["time"], veh.lane)[0]
+        return self._find_rear_vehicle(veh[Col.KILO], veh[Col.TIME], veh[Col.LANE])[0]
     
     def _get_adj_lanes(layout: dict, lane: int, kilo: float, rise, drive_right):
         """
@@ -230,11 +239,11 @@ class VehicleTimeExtractor:
         left_lane, right_lane = self._get_adj_lanes(self.layout, veh["lane"], veh["kilo"], self.rise, self.layout["drive_right"])
         
         
-        left_front = self._find_front_vehicle(veh["kilo"], veh["time"], left_lane)[0]  if left_lane else dummy_vehicletime
-        left_rear = self._find_rear_vehicle(veh["kilo"], veh["time"], left_lane)[0]  if left_lane else dummy_vehicletime
+        left_front = self._find_front_vehicle(veh["kilo"], veh["time"], left_lane)[0]  if left_lane else self.dummy_vt 
+        left_rear = self._find_rear_vehicle(veh["kilo"], veh["time"], left_lane)[0]  if left_lane else self.dummy_vt 
     
-        right_front = self._find_front_vehicle(veh["kilo"], veh["time"], right_lane)[0] if right_lane else dummy_vehicletime
-        right_rear = self._find_rear_vehicle(veh["kilo"], veh["time"], right_lane)[0]  if right_lane else dummy_vehicletime
+        right_front = self._find_front_vehicle(veh["kilo"], veh["time"], right_lane)[0] if right_lane else self.dummy_vt 
+        right_rear = self._find_rear_vehicle(veh["kilo"], veh["time"], right_lane)[0]  if right_lane else self.dummy_vt 
 
         return Neighbors(left_front=left_front, left_rear=left_rear, right_front=right_front, right_rear=right_rear)
         
@@ -249,8 +258,31 @@ class VehicleTimeExtractor:
     
 # %% ================ Trajectory Generation ====================
 
-class id_counter:
-    pass
+
+class SequentialIDGenerator:
+
+    def __init__(self, start_id=0):
+        self._current_id = start_id
+
+    def generate_id(self):
+        new_id = self._current_id
+        self._current_id += 1
+        return new_id
+    
+class SeriesIDGenerator:
+    def __init__(self, id_list: List[int]):
+        self.id_list = id_list
+        self.index = 0
+
+    def generate_id(self):
+        if self.index < len(self.id_list):
+            new_id = self.id_list[self.index]
+            self.index += 1
+            return new_id
+        else:
+            raise StopIteration("No more IDs available in the list.")
+        
+
 
 
 class WindowRoller:
@@ -277,6 +309,22 @@ class WindowRoller:
         else:
             raise(RuntimeError, "Bad Config Input.")
         
+    def roll_and_filter(self, max_length: int, func: Callable) -> None:
+        """
+        Rolls through the trajectories, applies filters, and extracts segments.
+        """
+        assert isinstance(func, Callable)
+        seg_length = self.window_len
+        max_length = max_length
+        
+        i = 0
+        while i + seg_length <= max_length: # Use <= to include the last possible segment
+            flag, next_idx = func(i, seg_length)
+            if not flag: i+= next_idx; continue
+            i += self.jump()
+    
+    def roll_and_filter_with_leftover(self, max_length: int, func: Callable):
+        pass
 
 
 
@@ -285,13 +333,12 @@ class TrajectoryExtractor:
     This class is responsible for extracting trajectories of vehicles over specified durations.
     """
     def __init__(self, include_config: dict, window_roller: WindowRoller):
-        assert "include_neighbor" in include_config, "No input field found in the config"
         assert "include_leader" in include_config, "No input field found in the config"
         assert "include_self" in include_config, "No input field found in the config"
         self.config = include_config
         self.window_roller = window_roller
 
-    def find_trajectory(self, ex: VehicleTimeExtractor, id: int, find_function: function= lambda x: x, *func_args) -> np.ndarray:
+    def find_trajectory(self, ex: VehicleTimeExtractor, id: int, find_function: Callable= lambda x: x, *func_args) -> np.ndarray:
         """
         Extract the trajectory of a vehicle by applying a specified function at each time step.
         """
@@ -303,10 +350,9 @@ class TrajectoryExtractor:
 
         # Get column names for structured array dtype
         col_names = self.get_col_names(ex)
-        dtype = [(name, float) for name in col_names] # Assuming all values are float
-        traj = np.empty(num_steps, dtype=dtype)
+        traj = np.empty((num_steps, len(col_names)))
 
-        for t_idx, t in enumerate(decimal_arange(start, end, ex.process_result.resolution)): # type: ignore
+        for t_idx, t in enumerate(decimal_arange(start, end, ex.process_result.resolution)): 
             traj[t_idx] = find_function(ex._get_veh(id, t), *func_args).to_list()
 
         return traj
@@ -316,66 +362,77 @@ class TrajectoryExtractor:
         # Get an arbitrary ID from the dataframe to create an example VehicleTime object
         # This assumes the dataframe is not empty.
 
-        example_id = ex.dataframe[Col.ID].iloc[0]
+        example_id = ex.dataframe.index.get_level_values(Col.ID).unique()[0]
         start_time, _ = ex._find_start_end_time(example_id)
-
+        
         return ex._get_veh(example_id, start_time).names_list()
 
-    def retrieve(self, ex: VehicleTimeExtractor, duration: float, id: int, filters):
+    def retrieve_by_id(self, ex: VehicleTimeExtractor, id: int, filters: Dict[str, List[Callable]]) -> Dict[str, np.ndarray]:
         
-        include_neighbor = self.config["include_neighbor"]
         include_leader = self.config["include_leader"]
         include_self = self.config["include_self"]
 
-
-        if include_neighbor:
-            neighbor_traj = self.find_trajectory(id, ex.find_neighbors)
+        # Prepare trajectories based on include_config
+        trajectories = {}
+        if include_self:
+            trajectories["self"] = self.find_trajectory(ex, id)
         if include_leader:
-            leader_traj = self.find_trajectory(id, ex.find_leader)
-        follower_traj = self.find_trajectory(id)
-
-
-
-        ## window roller ##
-
-        seg_length = int(duration / ex.process_result.resolution)  # Compute segment length
-        max_length = follower_traj.shape[0]
-        roller = self.window_roller
-
-        #############################
+            trajectories["leader"] = self.find_trajectory(ex, id, ex.find_leader)
 
         output_data = {} # to store the output np.ndarray segments
-        
-        
+        max_length = trajectories["self"].shape[0]
 
-        i = 0
-        while i + seg_length < max_length:
-
+        def handle_vehtime(i, seg_length):
             segment_passed_filters = True
             segments = {}
+            next_idx = 0  # Initialize to prevent UnboundLocalError
 
-            for role, traj, point_filters, traj_filters in [
-                ("neighbor", neighbor_traj, filters["nei_point_filter_set"], filters["nei_traj_filter_set"]) if include_neighbor else (None, None, None, None),
-                ("self", follower_traj, filters["self_point_filter_set"], filters["self_traj_filter_set"]) if include_self else (None, None, None, None),
-                ("leader", leader_traj, filters["leader_point_filter_set"], filters["leader_traj_filter_set"]) if include_leader else (None, None, None, None),
-            ]:
-                if role:
-                    segment = traj[i : i + seg_length, :]
-                    segments[role] = segment
-                    if_filtered, next_idx = VehicleFilter.filter_data(segment, point_filters, traj_filters) # check filters and provide next index (the index where error pops up) to jump to 
-                    if if_filtered:
-                        i += next_idx # jump to the next index that may pass the filters
-                        segment_passed_filters = False
-                        break # No need to check other roles if one fails
-            if not segment_passed_filters: continue # if any segment fails, skip to the next iteration
+            for role, traj in trajectories.items():
+                segment = traj[i : i + seg_length]
+                segments[role] = segment
+                role_filters = filters.get(f"{role}", [])
+                
 
-            # Store the segments that passed the filters
-            for role, segment in segments.items():
-                output_data.setdefault(role, []).append(segment)
+                if_filtered, jump_distance = filter_data(segment, role_filters)
+                if if_filtered:
+                    # If a filter fails, we need to adjust the outer loop's 'i'
+                    # to jump past the violating segment.
+                    next_idx = jump_distance
+                    segment_passed_filters = False
+                    break # No need to check other roles if one fails
 
-            i += roller.jump()  # 
+            if segment_passed_filters:
+                for role, segment in segments.items():
+                    output_data.setdefault(role, []).append(segment)
+            return segment_passed_filters, next_idx
 
+        # Apply window rolling and filtering
+        self.window_roller.roll_and_filter(max_length, handle_vehtime)
 
-        concat_data = {key: np.concatenate(np.expand_dims(value, 0), axis=0) for key, value in output_data.items()}
+        # Concatenate data for each role within this ID
+        concat_data = {}
+        for role, segments in output_data.items():
+            if segments: # Only concatenate if there are segments
+                concat_data[role] = np.concatenate(segments, axis=0)
 
         return concat_data
+    
+    def retrieve_all(self, ex: VehicleTimeExtractor, filters: dict[str, list[Callable]], id_generator: SequentialIDGenerator = None) -> Dict[str, np.ndarray]:
+        """
+        Extract trajectories for all vehicle IDs in the provided list.
+        """
+        all_data = {}
+        id_list = ex.dataframe.index.get_level_values(Col.ID).unique()
+
+        if id_generator is None: # use original IDs in the dataset
+            id_generator = SeriesIDGenerator(id_list)
+
+        for vid in tqdm(id_list):
+            id_data = self.retrieve_by_id(ex, vid, filters)
+            for role, data in id_data.items():
+                all_data.setdefault(role, []).append(data)
+
+        # Concatenate data for each role
+        concatenated_data = {role: np.concatenate(data_list, axis=0) for role, data_list in all_data.items()}
+
+        return concatenated_data

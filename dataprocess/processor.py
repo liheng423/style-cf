@@ -4,10 +4,11 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 import datetime
 from utils.utils import *
 from typing import Union, Dict, List, NamedTuple, Tuple
-from data.kalman import kf
+from dataprocess.kalman import kf
 import numpy as np
-from schema import *
+from dataprocess.schema import *
 import pandas as pd
+from dataprocess.tableutils import *
 
 
 class ProcessResult(NamedTuple):
@@ -16,33 +17,21 @@ class ProcessResult(NamedTuple):
     in_kph: bool
     resolution: float
 
-class DataProcesser:
+class DataProcessor:
 
     def __init__(self, rise: bool, in_kph: bool, time_resolution: float):
         """
-        Initialize the DataProcesser with a configuration dictionary.
+        Initialize the DataProcessor with a configuration dictionary.
 
         Args:
-            config (dict): Configuration dictionary containing column names.
             rise (bool): Whether the KILO column represents rising positions.
             in_kph (bool): Whether the speed is in kilometers per hour.
             time_resolution (float): the time resolution in seconds.
-
-
-        Required column names in the configuration:
-            - `TIME`: Column name for time data.
-            - `ID`: Column name for unique identifiers (e.g., vehicle IDs).
-            - `SPD`: Column name for speed data (in kph).
-            - `KILO`: Column name for position data (in meter).
-            - `LANE`: Column name for lane data.
-            - `LC`: Column name for lane change flags.
-            - `ACC`: Column name for acceleration data.
         """ 
         self.in_kph = in_kph #  whether the speed is in kilometers per hour
         self.rise = rise # whether the KILO is rising or falling
         self.time_in_sec = False # whether the TIME column is in seconds
         self.time_resolution = time_resolution
-        self._check_config_keys()
 
     def get_result(self, dataframe: pd.DataFrame) -> ProcessResult:
         return ProcessResult(dataframe, self.rise, self.in_kph, self.time_resolution)
@@ -76,7 +65,7 @@ class DataProcesser:
         """
         assert self.in_kph, "Speed is not in kph"
         dataframe = dataframe.copy()        
-        dataframe[self.schema.SPD] = kph2ms(dataframe[Col.SPD])
+        dataframe[Col.SPD] = kph2ms(dataframe[Col.SPD])
         self.in_kph = False
         return dataframe
 
@@ -92,13 +81,7 @@ class DataProcesser:
  
         return dataframe.set_index([Col.ID, Col.TIME])
 
-    def _check_config_keys(self):
-        """
-        Check if all required column names are present in the configuration.
-        """
-        required_keys = ["TIME", "ID", "SPD", "KILO", "LANE", "LC", "ACC"]
-        for key in required_keys:
-            assert key in self.config, f"Missing required key in config: {key}"
+ 
 
     def strtime2sec(self, dataframe: pd.DataFrame, time_format: str, start_time: datetime = None) -> pd.DataFrame:
         """
@@ -188,7 +171,7 @@ class DataProcesser:
             window (float): Time window for lane-changing flagging, indicating the duration of lane-changing.
 
         Returns:
-            pd.DataFrame: DataFrame with LC flags.
+            pd.DataFrame: DataFrame with LC flags (if the vehicle is in LC).
         """
         dataframe = dataframe.copy()
         window = int(window)
@@ -207,10 +190,10 @@ class DataProcesser:
                 lc_series.loc[group.index[start:mid]] = -1
                 lc_series.loc[group.index[mid:end + 1]] = 1
 
-        dataframe[Col.IN_LC] = lc_series
+        dataframe[Col.LC] = lc_series
         return dataframe
 
-    def derive_acc(self, dataframe: pd.DataFrame, in_kph) -> pd.DataFrame:
+    def derive_acc(self, dataframe: pd.DataFrame) -> pd.DataFrame:
         """
         Derive acceleration (ACC) based on speed and time.
 
@@ -222,6 +205,7 @@ class DataProcesser:
         """
         dataframe = dataframe.copy()
         grouped = dataframe.groupby(Col.ID)
+        in_kph = self.in_kph
 
         def compute_acceleration(group):
             time_values = group[Col.TIME].to_numpy()

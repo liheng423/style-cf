@@ -2,6 +2,43 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+class LossFunction:
+
+    @staticmethod
+    def _predict_kinematics(accs: torch.Tensor, ground_truth: torch.Tensor, dt: float):
+        """
+        Compute predicted speed and distance based on acceleration.
+        
+        Args:
+            accs (torch.Tensor): Acceleration tensor of shape (N, T).
+            ground_truth (torch.Tensor): Ground truth tensor of shape (N, T+1, [distance, speed, acc]).
+            dt (float): Time step duration.
+        
+        Returns:
+            pred_spd (torch.Tensor): Predicted speed tensor of shape (N, T).
+            pred_dis (torch.Tensor): Predicted distance tensor of shape (N, T).
+        """
+        init_dis, init_spd = ground_truth[:, 0, 0].unsqueeze(1), ground_truth[:, 0, 1].unsqueeze(1)
+        pred_spd = init_spd + torch.cumsum(accs, dim=1) * dt
+        # pred_dis = init_dis + torch.cumsum(pred_spd * dt + 0.5 * accs * dt**2, dim=1)
+        pred_dis = init_dis + torch.cumsum(pred_spd , dim=1) * dt
+        return pred_spd, pred_dis
+    
+    @staticmethod
+    def acc_spacing_mse(accs: torch.Tensor, ground_truth: torch.Tensor, dt: float):
+        _, pred_dis = LossFunction._predict_kinematics(accs, ground_truth, dt)
+        true_leader_dis = ground_truth[:, 1:, 4]
+        true_spacing = ground_truth[:, 1:, 3]
+        return F.mse_loss(true_leader_dis - pred_dis, true_spacing)
+    
+class StyleCFLoss:
+
+    @staticmethod
+    def acc_spacing_mse(outputs, y, dt):
+        output_accs, output_style = outputs
+        y_traj = y
+        acc_loss = LossFunction.acc_spacing_mse(output_accs, y_traj, dt)
+        return acc_loss    
 
 
 class TransfollowerStyleToDecoder(nn.Module):
@@ -35,6 +72,7 @@ class TransfollowerStyleToDecoder(nn.Module):
 
         # Positional embeddings
         self.positional_embedding = nn.Embedding(self.settings["seq_len"] + self.settings["pred_len"], d_model)
+
         # Initialization
         nn.init.normal_(self.enc_emb.weight, 0, .02)
         nn.init.normal_(self.dec_emb.weight, 0, .02)
@@ -138,7 +176,7 @@ class StyleTransformer(nn.Module):
         x: tuple(enc_inp, dec_inp, style)
         - enc_inp: (B, T_enc, enc_in)
         - dec_inp: (B, T_dec, dec_in)
-        - style: (B, d_model)
+        - style: (B, d_model) expanded on time dimension
         """
         
         enc_inp, dec_inp, style = x

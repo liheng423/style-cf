@@ -1,19 +1,29 @@
+import os, sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+
 import pandas as pd
 import numpy as np
-from schema import *
+from dataprocess.schema import *
 import bisect
 
 kph2ms = lambda kph: kph / 3.6
 ms2kph = lambda ms: ms * 3.6
 
-def lookup(traj_df, id_slice=None, time_slice=None, distance_slice=None, df_config: dict=None) -> pd.DataFrame:
+def find_jumps(lane_sr: pd.Series) -> pd.Series:
+    """
+    Given only one vehicle_id trajectory, return at what time point it changes lane
+    """
+    # Compute diff on traffic_lane column; note that the first row will have NaN
+    lane_change = lane_sr.diff().ne(0, fill_value=0)
+    return lane_sr[lane_change]
+
+def lookup(traj_df, id_slice=None, time_slice=None, distance_slice=None) -> pd.DataFrame:
 
     
     assert isinstance(traj_df.index, pd.MultiIndex) and len(traj_df.index.levels) == 2, "The DataFrame must have a MultiIndex with two levels (ID and TIME (in seconds))"
 
     assert Col.KILO in traj_df.columns, "KILO column not found in the DataFrame"
-    assert Col.TIME in traj_df.columns, "TIME column not found in the DataFrame"
-    assert Col.ID in traj_df.columns, "ID column not found in the DataFrame"
 
     slices = [id_slice, time_slice, distance_slice]
 
@@ -23,9 +33,8 @@ def lookup(traj_df, id_slice=None, time_slice=None, distance_slice=None, df_conf
             slices[i] = slice(None)
             continue
 
-        if isinstance(slices[i], (int, float)) :
-            # slices[i] = slice(slices[i], slices[i])
-            if (isinstance(slices[i], np.int_)):
+        if isinstance(slices[i], (int, float, np.number)):
+            if isinstance(slices[i], np.integer): # Use np.integer for broader integer type checking
                 slices[i] = int(slices[i])
             continue
 
