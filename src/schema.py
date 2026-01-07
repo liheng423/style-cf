@@ -33,3 +33,20 @@ class HH_Col:
     A_FOL: str = "a_follower"
     L_LEAD: str = "l_leader"
     L_FOL: str = "l_follower"
+
+@dataclass(frozen=True)
+class CFNAMES:
+    SELF_X = "SELF_X"
+    SELF_V = "SELF_V"
+    SELF_A = "SELF_A"
+    SELF_L = "SELF_L"
+    LEAD_X = "LEAD_X"
+    LEAD_V = "LEAD_V"
+    LEAD_A = "LEAD_A"
+    LEAD_L = "LEAD_L"
+    DELTA_X = "DELTA_X"
+    DELTA_V = "DELTA_V"
+    SELF_ID = "SELF_ID"
+    LEAD_ID = "LEAD_ID"
+    REACT = "reaction"
+    THW = "timeheadway"

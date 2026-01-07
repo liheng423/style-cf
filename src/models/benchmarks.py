@@ -24,7 +24,7 @@ class IDM(nn.Module):
             return self.s0 + torch.max(torch.tensor(0.0, device=v_this.device), 
                                    v_this * self.T + v_this * delta_v_i / (2 * torch.sqrt(self.a * self.b)))
         else:
-            return self.s0 + max(0, v_this * self.T + v_this * delta_v_i / (2 * np.sqrt(self.a * self.b)))
+            return self.s0 + max(0, v_this * self.T + v_this * delta_v_i / (2 * torch.sqrt(self.a * self.b)))
 
     def predict(self, v_this, v_front, s_this):
         """

@@ -6,7 +6,7 @@ from utils.utils import *
 from typing import Union, Dict, List, NamedTuple, Tuple
 from dataprocess.kalman import kf
 import numpy as np
-from dataprocess.schema import *
+from schema import *
 import pandas as pd
 from dataprocess.tableutils import *
 

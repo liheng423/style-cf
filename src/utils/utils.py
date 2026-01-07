@@ -1,6 +1,9 @@
 from datetime import datetime
 import pandas as pd
 
+kph2ms = lambda x: x / 3.6 
+ms2kph = lambda x: x * 3.6
+
 is_in_range = lambda x, bounds, if_reverse=False: (
         bounds[1] <= x <= bounds[0] if if_reverse else bounds[0] <= x <= bounds[1]
     )

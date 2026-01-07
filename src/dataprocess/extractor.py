@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 from dataclasses import dataclass, field
 from dataprocess.processor import *
-from dataprocess.schema import *
+from schema import *
 from dataprocess.tableutils import *
 from tqdm import tqdm
 from collections import namedtuple

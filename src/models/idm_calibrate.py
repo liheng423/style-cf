@@ -1,5 +1,10 @@
+import torch
+from torch import nn
+from torch import Tensor
+from torch.utils import data
+from tensordict import TensorDict
 
-def evaluate_recursive(model, dataloader, criterion, simulator, config):
+def evaluate_recursive(model: nn.Module, dataloader: data.DataLoader, criterion: nn.Module, simulator, config: dict):
     """
     The difference is that this function takes a time series instead of a set of time instances,
     the function can evaluate the fitness of the whole trajectory using recursive evaluation step by step.
@@ -14,13 +19,14 @@ def evaluate_recursive(model, dataloader, criterion, simulator, config):
     num_batches = len(dataloader)
 
     with torch.no_grad():
+
         for x, y in dataloader:
             
-            x, y = to(x, device), to(y, device)
+            x: TensorDict; y: TensorDict = x.to(device), y.to(device)
 
             y_self, y_leader = y
 
-            pred_self = simulator.predict(MultiDataSingle(x), y_self, y_leader, pred_func, mask)
+            pred_self = simulator.predict(x, y_self, y_leader, pred_func, mask)
             
             loss = criterion(pred_self, y_self)
 

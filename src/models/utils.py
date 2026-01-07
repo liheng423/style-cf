@@ -1,6 +1,9 @@
+from typing import List
 import torch
 from tensordict import TensorDict
-
+import numpy as np
+import agent 
+from schema import CFNAMES
 ##
 # batch = TensorDict({
 #     "enc_x": torch.randn([N, F, T], names=["N", "T", "F"]),
@@ -8,6 +11,9 @@ from tensordict import TensorDict
 #     "style": torch.randn([N, F], , names=["N", "F"])
 # }, batch_size=[N])
 ## 
+
+
+
 def stack_name(tensordict_list: list[TensorDict], dim_name: str):
     """
     Stacks a TensorDict along the specified dimension name.
@@ -53,3 +59,295 @@ def stack_name(tensordict_list: list[TensorDict], dim_name: str):
         new_batch_size[dim_idx] *= len(tensordict_list)
 
     return TensorDict(stacked_data, batch_size=new_batch_size, names=tensordict_list[0].names)
+
+
+class SliceableTensorDict(TensorDict):
+    def __init__(self, source=None, batch_size=None, names=None):
+        super().__init__(source=source, batch_size=batch_size, names=names)
+
+    def __getitem__(self, item):
+        """
+        Slice tensors along a named dimension.
+
+        Examples:
+            td["T", 0]             # int index
+            td["T", slice(1, 5)]   # slice index
+            td["T", [0, 2, 4]]     # list / sequence index
+
+        If the named dimension does not exist on a tensor, that tensor is left unchanged.
+        """
+        if (
+            isinstance(item, tuple)
+            and len(item) == 2
+            and isinstance(item[0], str)
+        ):
+            dim_name, selector = item
+            if self.names is not None and dim_name in self.names:
+                raise ValueError(f"Slicing along batch axis '{dim_name}' is not allowed")
+            if not isinstance(selector, (int, slice, list, torch.Tensor)):
+                raise TypeError(
+                    "Selector must be int, slice, list or torch.Tensor when indexing by name"
+                )
+
+            def _index_tensor(tensor):
+                if dim_name not in tensor.names:
+                    return tensor
+                dim = tensor.names.index(dim_name)
+                if isinstance(selector, int):
+                    return tensor.select(dim=dim, index=selector)
+
+                idx = [slice(None)] * tensor.ndim
+                idx[dim] = (
+                    torch.as_tensor(selector, device=tensor.device)
+                    if isinstance(selector, list)
+                    else selector
+                )
+                return tensor[tuple(idx)]
+
+            new_data = {k: _index_tensor(v) for k, v in self.items()}
+
+            return SliceableTensorDict(new_data, batch_size=self.batch_size, names=self.names)
+
+        # fallback to base TensorDict behaviour (e.g. td["key"])
+        return super().__getitem__(item)
+    
+
+
+
+class SampleDataPack:
+    """
+    A class to manage and manipulate car-following data stored in a 3D numpy array format.
+    """
+
+    def __init__(self, data: np.ndarray, name_dict: dict, rise: bool, kph: bool, kilo_norm, dt: float):
+        """
+        Args:
+            data (np.ndarray): the data in the format of (sample, time, num_feature)
+            name_dict (dict): the mapping between column name and index
+        """
+        self.data = data
+        self.names = name_dict
+        self.rise = rise
+        self.kph = kph
+        self.kilo_norm = kilo_norm
+        self.dt = dt
+
+    
+    def append_col(self, col: np.ndarray, col_name: str):
+        """
+        Args:
+            col (np.ndarray): New column data to append. Shape must be (samples, T) or (samples, T, 1).
+            col_name (str): Name of the new column.
+        """
+
+        assert col_name not in self.names
+
+        assert col.shape[:2] == self.data.shape[:2]
+
+        if len(col.shape) == 2:
+            col = col[:, :, np.newaxis]
+        
+        col_index = self.data.shape[2]
+        self.data = np.concatenate([self.data, col], axis=2)
+        self.names[col_name] = col_index
+
+    def replace_col(self, col: np.ndarray, col_name: str):
+        """
+        Replace an existing column in the data by name.
+
+        Args:
+            col (np.ndarray): New column data to replace with. Shape must be (samples, T) or (samples, T, 1).
+            col_name (str): Name of the column to replace.
+        """
+        assert col_name in self.names, f"Column '{col_name}' not found."
+        assert col.shape[:2] == self.data.shape[:2], "Shape mismatch with existing data."
+
+        if len(col.shape) == 2:
+            col = col[:, :, np.newaxis]
+
+        col_index = self.names[col_name]
+        self.data[:, :, col_index] = col[:, :, 0]
+
+
+    def __getitem__(self, key):
+        """
+        Supports:
+        - [i, j, "feature_name"]
+        - [:, :, "feature_name"]
+        - [i, j, ["feature1", "feature2"]]
+        """
+        if isinstance(key, tuple) and len(key) == 3:
+            i, j, feat = key
+            if isinstance(feat, str):
+                k = self.names[feat]
+                return self.data[i, j, k]
+            elif isinstance(feat, list):
+                k = [self.names[f] for f in feat]
+                return self.data[i, j, k]
+            else:
+                raise TypeError("Third index must be a string or list of strings.")
+        else:
+            return self.data[key]
+        
+
+    def reorder_features(self, new_name_dict: dict):
+        """
+        Reorder the feature dimension of data based on new_name_dict.
+
+        Args:
+            new_name_dict (dict): New mapping from feature name to index (0-based).
+                                Must contain the same keys as the old mapping,
+                                but possibly in a different order.
+
+        Raises:
+            ValueError: if the keys in the new_name_dict do not match the original.
+        """
+        # check keys consistency
+        if set(new_name_dict.keys()) != set(self.names.keys()):
+            raise ValueError("New name_dict must contain the same keys as the original.")
+
+        new_order = [self.names[name] for name in sorted(new_name_dict, key=new_name_dict.get)]
+        
+        self.data = self.data[:, :, new_order]
+
+        self.names = new_name_dict
+
+
+    def normalize_kilopost(self, column_keys: List[str] = None) -> 'SampleDataPack':
+        """
+        Normalize selected columns (e.g., 'LEAD_X', 'SELF_X') across all samples.
+        
+        Args:
+            column_keys (List[str], optional): List of feature keys to normalize. 
+                                            Defaults to ['LEAD_X', 'SELF_X'].
+
+        Returns:
+            DataPack: A new DataPack instance with normalized kilopost columns.
+        """
+        if self.kilo_norm is True:
+            print("The kilopost is already normalized, nothing is done")
+            return self
+
+        # Default columns to normalize
+        if column_keys is None:
+            column_keys = [LEAD_X, SELF_X]
+
+        # Get indices of the columns to normalize
+        column_indices = []
+        for key in column_keys:
+            idx = self.names.get(key)
+            if idx is None:
+                raise KeyError(f"Key '{key}' not found in names dict.")
+            column_indices.append(idx)
+
+        # Make a copy of the original data
+        new_data = self.data.copy()
+
+        # Extract and concatenate selected columns along axis=1
+        extracted = np.stack([new_data[:, :, idx] for idx in column_indices], axis=1)  # shape: (N, C, T)
+
+        # Normalize
+        mins = np.min(extracted, axis= (1, 2), keepdims=True)
+        maxs = np.max(extracted, axis= (1, 2), keepdims=True)
+        normalized = extracted - mins if self.rise else maxs - extracted
+
+        # Replace original data columns with normalized values
+        for i, idx in enumerate(column_indices):
+            new_data[:, :, idx] = normalized[:, i, :]
+
+        return SampleDataPack(new_data, self.names.copy(), kilo_norm=True, kph=self.kph, rise=True)
+
+    def split_by_time_windows(self, windows: list[tuple[int, int]]) -> 'SampleDataPack':
+        """
+        Efficiently split each sample along the time axis using numpy slicing,
+        and return a new DataPack with stacked split samples.
+
+        Args:
+            windows (list of tuple): Each tuple is a (start, end) window on the time axis.
+
+        Returns:
+            DataPack: New DataPack with additional samples from time splits.
+        """
+
+        # Check windows validity
+        for start, end in windows:
+            if not (0 <= start < end <= self.data.shape[1]):
+                raise ValueError(f"Invalid window ({start}, {end})")
+
+        # Slice and stack using numpy
+        split_data = np.concatenate(
+            [self.data[:, start:end, :].copy() for (start, end) in windows],
+            axis=0
+        )  # Result shape: (samples * len(windows), time_window, features)
+
+        return SampleDataPack(split_data, self.names.copy(), self.rise, self.kph, self.kilo_norm)
+
+    def convert_speed_to_ms(self, cols: list[str]) -> 'SampleDataPack':
+        """
+        Convert the given speed columns from km/h to m/s, and return a new DataPack.
+
+        Args:
+            cols (list[str]): List of column names to convert.
+
+        Returns:
+            DataPack: A new DataPack with specified columns converted to m/s.
+        """
+
+        if not self.kph: 
+            print("The data is already in m/s, nothing is executed.")
+            return self
+
+        for col in cols:
+            if col not in self.names:
+                raise ValueError(f"Column '{col}' not found in data.")
+
+        kph2ms = lambda x: x / 3.6
+
+        new_data = self.data.copy()
+        for col in cols:
+            idx = self.names[col]
+            new_data[:, :, idx] = kph2ms(new_data[:, :, idx])
+
+        return SampleDataPack(new_data, self.names.copy(), self.rise, False, self.kilo_norm)
+    
+              
+    def check_consistency(self, start_idx: int = 1):
+        """
+        Check physical consistency between acceleration, speed and displacement.
+
+        Args:
+            start_idx (int): Start index in the time axis for comparison (skip unstable initial frames).
+            dt (float): Time interval between steps in seconds.
+
+        Returns:
+            Tuple of:
+                - position error: tensor of shape (N, T-start_idx)
+                - speed error: tensor of shape (N, T-start_idx)
+        """
+        assert self.kph == False
+
+        # Extract tensors
+        accs = self[:, :, CFNAMES.SELF_A][:, start_idx:]  # (N, T')
+        x = self[:, :, CFNAMES.SELF_X]  # (N, T)
+        v = self[:, :, CFNAMES.SELF_V]  # (N, T)
+
+        # Build ground truth: shape (N, T, 2) with (x, v, a)
+        initial_states = np.stack([x, v], dim=2)  # (N, T, 2)
+        initial_states = initial_states[:, start_idx - 1]
+
+        # Predict kinematics using acceleration
+        preds = agent._predict_kinematics_np_batch(accs, initial_states, self.dt)  
+
+        # Compute error
+        pos_error = x[:, start_idx:] - preds[:, :, 0]
+        spd_error = v[:, start_idx:] - preds[:, :, 1]
+
+        return pos_error, spd_error
+    
+    def force_consistent(self):
+        self.replace_col(np.gradient(self[:, :, CFNAMES.SELF_X], self.dt, axis=1), CFNAMES.SELF_V)
+        self.replace_col(np.gradient(self[:, :, CFNAMES.SELF_V], self.dt, axis=1), CFNAMES.SELF_A)
+        self.replace_col(np.gradient(self[:, :, CFNAMES.LEAD_X], self.dt, axis=1), CFNAMES.LEAD_V)
+        self.replace_col(np.gradient(self[:, :, CFNAMES.LEAD_V], self.dt, axis=1), CFNAMES.LEAD_A)
+        self.replace_col(self[:, :, CFNAMES.LEAD_V] - self[:, :, CFNAMES.SELF_V], CFNAMES.DELTA_V)
+        self.replace_col(self[:, :, CFNAMES.LEAD_X] - self[:, :, CFNAMES.SELF_X], CFNAMES.DELTA_X)

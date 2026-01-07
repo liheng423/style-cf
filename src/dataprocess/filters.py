@@ -3,7 +3,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from typing import Callable
 import numpy as np
-from dataprocess.schema import *
+from schema import *
 
 
 def filter_data(data: np.ndarray, filters: list[Callable]) -> tuple[bool, int]:
