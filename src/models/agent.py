@@ -1,5 +1,6 @@
 from ast import Not
 from sklearn.discriminant_analysis import StandardScaler
+from tensordict import TensorDict
 import torch
 from typing import Optional, List
 from torch import Tensor
@@ -70,91 +71,100 @@ def _predict_kinematics_np_batch(accs: np.ndarray, initial_states: np.ndarray, d
 
 class Agent:
 
-    def __init__(self, cf_model, dt: float, pred_horizon: int, historic_step: int, scaler: Optional[StandardScaler], 
+    def __init__(self, cf_model, dt: float, horizon_len: int, historic_step: int, scaler: Optional[StandardScaler], 
                  pred_speed: bool = False, start_timestep=0):
         """
         This class only accepts the trained/calibrated car-following model.
         And used for closed-loop (recursive) prediction for a long period
+
+        Args:
+            cf_model: Trained/calibrated car-following model used for prediction.
+            dt: Simulation time step in seconds.
+            horizon_len: Number of steps predicted in each horizon window.
+            historic_step: Number of past steps used as model context.
+            scaler: Optional scalers used for input/output normalization.
+            start_timestep: Index to start prediction from in the input series.
         """
         self.dt = dt
         self.cf_model = cf_model
-        self.pred_horizon: int = pred_horizon
-        self.historic_step: int = historic_step
+        self.horizon_len: int = horizon_len # prediction window length of the model
+        self.historic_step: int = historic_step # 
         self.scaler = scaler
-        self.real_pred_step: int = pred_horizon
-        self.start_time = start_timestep
-        
-        self.if_pred_speed: bool = pred_speed # True -> output is speed, False -> outout is Acceleration
+        self.rollout_step: int = horizon_len # actual rollout step 
+        self.start_step: int = start_timestep
+
 
     def _predict_onestep(self, data: torch.Tensor, initial_states, pred_func, if_last):
         pred = pred_func(self.cf_model, data, if_last)
-        pred_series = _predict_kinematics(pred, initial_states, self.dt)
-        return pred_series
+        pred_traj = _predict_kinematics(pred, initial_states, self.dt)
+        return pred_traj
 
     def _update_train_series(self, train_series: torch.Tensor, self_movements: torch.Tensor, leader_movements: torch.Tensor):
         """
         Implement how to update the training series with predicted self movements and leader movements.
         """
         raise NotImplementedError("This function must be rewritten to use")
+
     
     @staticmethod
-    def _concat(tensor_list: List[Tensor]):
+    def _concat(tensor_list: List[TensorDict]):
         """
         Implement how to stack items in the list along time dimension.
+        tensor_list: List[torch.Tensor], each tensor in the shape of (time, [distance, velocity, acceleration])
         """
         return NotImplementedError("This function must be rewritten to use")
+    
 
-    def predict(self, x_series: torch.Tensor, y_self_series: torch.Tensor, y_leader_series: torch.Tensor, pred_func = lambda model, data: model(data), mask = lambda x, n: x):
+    def predict(self, x_full: TensorDict, self_traj_full: torch.Tensor, leader_traj_full: torch.Tensor, pred_func = lambda model, data: model(data), mask = lambda x, n: x):
         """
         Args:
-            x_series: np.array (time, input_features]) for training
-            y_series: np.array (time, [x_self, v_self, a_self, x_leader, v_leader, a_leader]) for evaluation and visualization
+            x_full: TensorDict, full model input series (for model prediction)
+            self_traj_full: torch.Tensor (time, [x_self, v_self, a_self]) full self trajectory 
+            leader_traj_full: torch.Tensor (time, [x_leader, v_leader, a_leader]) full leader trajectory
             pred_func: function
         """
         
-        assert y_self_series.shape[1] == 3 and y_leader_series.shape[1] == 3
+        assert self_traj_full.shape[1] == 3 and leader_traj_full.shape[1] == 3
 
-        start_time = self.start_time
+        start_step = self.start_step
 
-        skipped_movements = y_self_series[:start_time]
+        skipped_movements = self_traj_full[:start_step]
 
-        y_self_series = y_self_series[start_time:]
-        y_leader_series = y_leader_series[start_time:]
-        x_series = x_series[start_time:]
+        self_traj_full = self_traj_full[start_step:]
+        leader_traj_full = leader_traj_full[start_step:]
+        x_full = x_full[start_step:]
 
-        num_step = int((y_self_series.shape[0] - self.historic_step - self.pred_horizon + self.real_pred_step) // self.real_pred_step)
+        num_step = int((self_traj_full.shape[0] - self.historic_step - self.horizon_len + self.rollout_step) // self.rollout_step)
 
 
-        x_series_train = x_series[:self.historic_step]
-        self_movements = y_self_series[:self.historic_step] # only (time, [x_self, v_self, a_self])
+        x_ctx = x_full[:self.historic_step]
+        self_movements = self_traj_full[:self.historic_step] # only (time, [x_self, v_self, a_self])
 
-        pred_time_start = self.historic_step
+        horizon_start = self.historic_step
 
         for step in range(num_step):
+            base = horizon_start + step * self.rollout_step
 
-            # train_time_window = slice(step * (self.pred_horizon), pred_time_start + step * (self.pred_horizon))
-            # time window for prediction horizon
-            pred_time_window = slice(pred_time_start + step * (self.real_pred_step), pred_time_start + (step) * (self.real_pred_step) + self.pred_horizon)
+            # time window for full prediction horizon
+            horizon_window = slice(base, base + self.horizon_len)
 
-            # time window for update used prediction
-            real_pred_window = slice(pred_time_start + step * (self.real_pred_step), pred_time_start + (step + 1) * (self.real_pred_step))
+            # time window for the actual rollout step
+            rollout_window = slice(base, base + self.rollout_step)
 
             with torch.no_grad():
-                # data = x_series_train[-self.pred_horizon:]
+
 
                 # We use train_time_window (seq_len) and pred window (pred_len) as data here, but user-defined mask function
                 # could ignore the second param
-                data = mask(x_series_train[-self.historic_step:], x_series[pred_time_window], x_series[:self.historic_step])
+                data = mask(x_ctx[-self.historic_step:], x_full[horizon_window], x_full[:self.historic_step])
 
 
                 # predict the acceleration, speed and distance
-                pred_series = self._predict_onestep(data, self_movements[-1, [0, 1]], pred_func, step == num_step-1)
+                pred_traj = self._predict_onestep(data, self_movements[-1, [0, 1]], pred_func, step == num_step-1)
 
-                # update self_movements and x_series_train
-                if step == num_step-1:
-                    x_series_train = self._concat([x_series_train, self._update_train_series(x_series[pred_time_window], pred_series, y_leader_series[pred_time_window])])
-                else:
-                    x_series_train = self._concat([x_series_train, self._update_train_series(x_series[real_pred_window], pred_series, y_leader_series[real_pred_window])])
-                self_movements = self._concat([self_movements, pred_series])
+                # update self_movements and x_ctx
+                update_window = horizon_window if step == num_step - 1 else rollout_window
+                x_ctx = self._concat([x_ctx, self._update_train_series(x_full[update_window], pred_traj, leader_traj_full[update_window])])
+                self_movements = self._concat([self_movements, pred_traj])
 
         return self._concat([skipped_movements, self_movements])

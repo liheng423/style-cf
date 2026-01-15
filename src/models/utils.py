@@ -351,3 +351,24 @@ class SampleDataPack:
         self.replace_col(np.gradient(self[:, :, CFNAMES.LEAD_V], self.dt, axis=1), CFNAMES.LEAD_A)
         self.replace_col(self[:, :, CFNAMES.LEAD_V] - self[:, :, CFNAMES.SELF_V], CFNAMES.DELTA_V)
         self.replace_col(self[:, :, CFNAMES.LEAD_X] - self[:, :, CFNAMES.SELF_X], CFNAMES.DELTA_X)
+
+def load_zen_data(path, rise, in_kph=False, kilo_norm=False):
+    names = {
+        CFNAMES.SELF_ID: 0,
+        CFNAMES.SELF_X: 1,
+        CFNAMES.SELF_V: 2,
+        CFNAMES.SELF_A: 3,
+        CFNAMES.SELF_L: 4,
+        CFNAMES.LEAD_ID: 5,
+        CFNAMES.LEAD_X: 6,
+        CFNAMES.LEAD_V: 7,
+        CFNAMES.LEAD_A: 8,
+        CFNAMES.LEAD_L: 9
+    }
+
+    data: np.ndarray = np.load(path, allow_pickle=True).astype(np.float32)
+    print(f"Data Shape: {data.shape}")
+
+    datapack = SampleDataPack(data, names, rise=rise, kph=in_kph, kilo_norm=kilo_norm, dt=0.1)
+
+    return datapack

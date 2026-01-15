@@ -1,7 +1,12 @@
+from ast import List
+from typing import override
+from tensordict import TensorDict
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
+# ========== IDM Model ========== #
 class IDM(nn.Module):
     def __init__(self, params, use_torch=False):
         
@@ -44,3 +49,42 @@ class IDM(nn.Module):
         s_this = X[:, 2]
         delta_v_i = v_this - v_front
         return self.a * (1 - (v_this / self.v0) ** self.sigma - (self.desired_s(v_this, delta_v_i) / s_this) ** 2)
+
+@staticmethod
+def idm_update_train_series(simulator):
+
+    def _update_train_series(train_series: torch.Tensor, self_movements: torch.Tensor, leader_movements: torch.Tensor):
+        """
+        Args:
+            X (torch.Tensor): size (1, [v_self, v_leader, spacing]), training data input.
+            self_movements (np.array): size (1, [x_self, v_self, a_self])
+            leader_movements (np.array): size (1, [x_self, v_self, a_self])
+        """
+        train_series = train_series.inputs[0]
+        train_series[:, 0] = self_movements[:, 1]
+        train_series[:, 2] = leader_movements[:, 0] - self_movements[:, 0]
+
+        return torch.tensor(train_series)
+
+    return _update_train_series
+
+@override
+def idm_concat(tensor_list: List[TensorDict]):
+    """
+        tensor_list: List[TensorDict], no style token, thus reduce to normal concat.
+    """
+    return torch.concat(tensor_list, dim=0)
+
+
+# ========== End of IDM Model ========== #
+
+# ========== LSTM Model ========== #
+
+
+@override
+def lstm_concat(tensor_list: List[TensorDict]):
+    """
+        tensor_list: List[TensorDict], no style token, thus reduce to normal concat.
+    """
+    return torch.concat(tensor_list, dim=0)
+

@@ -3,6 +3,9 @@ from torch import nn
 from torch import Tensor
 from torch.utils import data
 from tensordict import TensorDict
+from benchmarks import IDM
+from agent import Agent
+from sko.GA import GA
 
 def evaluate_recursive(model: nn.Module, dataloader: data.DataLoader, criterion: nn.Module, simulator, config: dict):
     """
@@ -67,12 +70,8 @@ def _fitness_function(params, idm_model, dataloader, config):
     return fitness
 
 def calibrate_idm_genetic(dataloader, idm_model: IDM, calibration_config):
-    
-
 
     bounds = [(15, 30), (0, 3), (0.5, 3), (0.5, 4), (0.5, 4)]  # 对应 [v0, s0, T, a, b]
-
-
     ga = GA(func=lambda params: _fitness_function(params, idm_model, dataloader, calibration_config), 
             n_dim=5,  # 参数维度
             size_pop=10,  # 种群大小
