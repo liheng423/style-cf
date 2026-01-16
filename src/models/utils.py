@@ -2,8 +2,7 @@ from typing import List
 import torch
 from tensordict import TensorDict
 import numpy as np
-import agent 
-from schema import CFNAMES
+from src.schema import CFNAMES
 ##
 # batch = TensorDict({
 #     "enc_x": torch.randn([N, F, T], names=["N", "T", "F"]),
@@ -27,6 +26,10 @@ def stack_name(tensordict_list: list[TensorDict], dim_name: str):
     Returns:
         TensorDict: A new TensorDict with the dimension stacked into the indicated dimension.
     """    
+    first_type = type(tensordict_list[0])
+    if not all(isinstance(td, first_type) for td in tensordict_list):
+        raise TypeError("All items in tensordict_list must have the same class")
+    
     if not tensordict_list:
         return TensorDict({}, batch_size=[])
     
@@ -58,58 +61,80 @@ def stack_name(tensordict_list: list[TensorDict], dim_name: str):
         dim_idx = tensordict_list[0].names.index(dim_name)
         new_batch_size[dim_idx] *= len(tensordict_list)
 
-    return TensorDict(stacked_data, batch_size=new_batch_size, names=tensordict_list[0].names)
+    return first_type(stacked_data, batch_size=new_batch_size, names=tensordict_list[0].names)
 
 
 class SliceableTensorDict(TensorDict):
     def __init__(self, source=None, batch_size=None, names=None):
         super().__init__(source=source, batch_size=batch_size, names=names)
 
-    def __getitem__(self, item):
+    def sel(self, item=None, **indexers):
         """
-        Slice tensors along a named dimension.
+        Slice tensors along named dimensions.
 
         Examples:
-            td["T", 0]             # int index
-            td["T", slice(1, 5)]   # slice index
-            td["T", [0, 2, 4]]     # list / sequence index
+            td.sel(T=0)                       # int index
+            td.sel(T=slice(1, 5))             # slice index
+            td.sel(T=[0, 2, 4], X=slice(0, 3))
+            td.sel(("T", 0))                  # backwards-compatible
+            td.sel({"T": 0, "X": [1, 3]})     # dict form
 
-        If the named dimension does not exist on a tensor, that tensor is left unchanged.
+        If a named dimension does not exist on a tensor, that tensor is left unchanged.
         """
-        if (
+        if item is not None and indexers:
+            raise ValueError("Provide either item or keyword indexers, not both")
+
+        if item is None:
+            selectors = indexers
+        elif (
             isinstance(item, tuple)
             and len(item) == 2
             and isinstance(item[0], str)
         ):
-            dim_name, selector = item
+            selectors = {item[0]: item[1]}
+        elif isinstance(item, dict):
+            selectors = item
+        else:
+            return super().__getitem__(item)
+
+        if not selectors:
+            return self
+
+        for dim_name in selectors.keys():
             if self.names is not None and dim_name in self.names:
                 raise ValueError(f"Slicing along batch axis '{dim_name}' is not allowed")
+
+        def _validate_selector(selector):
             if not isinstance(selector, (int, slice, list, torch.Tensor)):
                 raise TypeError(
                     "Selector must be int, slice, list or torch.Tensor when indexing by name"
                 )
 
-            def _index_tensor(tensor):
-                if dim_name not in tensor.names:
-                    return tensor
-                dim = tensor.names.index(dim_name)
-                if isinstance(selector, int):
-                    return tensor.select(dim=dim, index=selector)
+        for selector in selectors.values():
+            _validate_selector(selector)
 
-                idx = [slice(None)] * tensor.ndim
+        def _index_tensor(tensor):
+            result = tensor
+            for dim_name, selector in selectors.items():
+                if dim_name not in result.names:
+                    continue
+                dim = result.names.index(dim_name)
+                if isinstance(selector, int):
+                    result = result.select(dim=dim, index=selector)
+                    continue
+
+                idx = [slice(None)] * result.ndim
                 idx[dim] = (
-                    torch.as_tensor(selector, device=tensor.device)
+                    torch.as_tensor(selector, device=result.device)
                     if isinstance(selector, list)
                     else selector
                 )
-                return tensor[tuple(idx)]
+                result = result[tuple(idx)]
+            return result
 
-            new_data = {k: _index_tensor(v) for k, v in self.items()}
+        new_data = {k: _index_tensor(v) for k, v in self.items()}
 
-            return SliceableTensorDict(new_data, batch_size=self.batch_size, names=self.names)
-
-        # fallback to base TensorDict behaviour (e.g. td["key"])
-        return super().__getitem__(item)
+        return SliceableTensorDict(new_data, batch_size=self.batch_size, names=self.names)
     
 
 

@@ -1,19 +1,13 @@
-
-
-from models.utils import load_zen_data
-
-
+from src.models.utils import SliceableTensorDict
+from src.models.utils import load_zen_data
+from src.models.agent import Agent
+from src.models.benchmarks import IDM, idm_concat, idm_update_train_series
 import os
 import sys
 import unittest
-
 import torch
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
-from src.models.agent import Agent
-from src.models.benchmarks import IDM, idm_concat, idm_update_train_series
-
+from src.stylecf.schema import TensorNames
 
 
 class TestIDMAgent(unittest.TestCase):
@@ -25,7 +19,7 @@ class TestIDMAgent(unittest.TestCase):
 
         idm = IDM(params, use_torch=True)
         idm_simulator = Agent(idm, dt, horizon_len, historic_step, scaler=None, start_timestep=0)
-        idm_simulator._update_train_series = idm_update_train_series()
+        idm_simulator._update_train_series = idm_update_train_series(idm_simulator)
         idm_simulator._concat = idm_concat
 
         total_steps = 8
@@ -41,8 +35,8 @@ class TestIDMAgent(unittest.TestCase):
         self_traj_full = torch.stack([self_x, self_v, self_a], dim=1)
         leader_traj_full = torch.stack([leader_x, leader_v, leader_a], dim=1)
         spacing = leader_x - self_x
-        x_full = torch.stack([self_v, leader_v, spacing], dim=1)
-
+        x_full_data = torch.stack([self_v, leader_v, spacing], dim=1).rename(TensorNames.T, TensorNames.F)
+        x_full = SliceableTensorDict({TensorNames.INPUTS: x_full_data}, batch_size=[])
         pred = idm_simulator.predict(
             x_full,
             self_traj_full,
@@ -53,4 +47,5 @@ class TestIDMAgent(unittest.TestCase):
 
         self.assertEqual(pred.shape, self_traj_full.shape)
         self.assertTrue(torch.isfinite(pred).all())
-
+        mse = torch.mean((pred - self_traj_full) ** 2).item()
+        self.assertLess(mse, 1) # Do not deviate too much

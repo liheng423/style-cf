@@ -1,7 +1,7 @@
 import numpy as np
 from typing import Callable, List
-from models.datapack import DataPack
-from schema import CFNAMES
+from src.models.datapack import DataPack
+from src.schema import CFNAMES
 from tslearn.metrics import dtw, dtw_path
 
 class CFFilter:

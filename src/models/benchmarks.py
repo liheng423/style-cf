@@ -1,9 +1,11 @@
-from ast import List
-from typing import override
+from typing import List
 from tensordict import TensorDict
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from src.models.utils import SliceableTensorDict, stack_name
+from src.stylecf.schema import TensorNames
 
 
 # ========== IDM Model ========== #
@@ -26,8 +28,8 @@ class IDM(nn.Module):
 
     def desired_s(self, v_this, delta_v_i):
         if self.use_torch:
-            return self.s0 + torch.max(torch.tensor(0.0, device=v_this.device), 
-                                   v_this * self.T + v_this * delta_v_i / (2 * torch.sqrt(self.a * self.b)))
+            term = v_this * self.T + v_this * delta_v_i / (2 * torch.sqrt(self.a * self.b))
+            return self.s0 + torch.clamp_min(term, 0.0)
         else:
             return self.s0 + max(0, v_this * self.T + v_this * delta_v_i / (2 * torch.sqrt(self.a * self.b)))
 
@@ -39,40 +41,47 @@ class IDM(nn.Module):
         delta_v_i = v_this - v_front
         return self.a * (1 - (v_this / self.v0) ** self.sigma - (self.desired_s(v_this, delta_v_i) / s_this) ** 2)
 
-    def forward(self, X, *args):
+    def forward(self, X: SliceableTensorDict, *args):
         """
         Args:
-        X (torch.Tensor): size (batch X [v_self, v_leader, spacing]), training data input.
+        X (SliceableTensorDict): size ((B), T, [v_self, v_leader, spacing]), training data input.
         """
-        v_this = X[:, 0]
-        v_front = X[:, 1]
-        s_this = X[:, 2]
-        delta_v_i = v_this - v_front
-        return self.a * (1 - (v_this / self.v0) ** self.sigma - (self.desired_s(v_this, delta_v_i) / s_this) ** 2)
-
+        X = X[TensorNames.INPUTS]  # get the underlying tensor
+        v_this = X[... , 0]
+        v_front = X[... , 1]
+        s_this = X[... , 2]
+        return self.predict(v_this, v_front, s_this)
+        
 @staticmethod
 def idm_update_train_series(simulator):
 
-    def _update_train_series(train_series: torch.Tensor, self_movements: torch.Tensor, leader_movements: torch.Tensor):
+    def _update_train_series(train_series: TensorDict, self_movements: torch.Tensor, leader_movements: torch.Tensor):
         """
         Args:
-            X (torch.Tensor): size (1, [v_self, v_leader, spacing]), training data input.
-            self_movements (np.array): size (1, [x_self, v_self, a_self])
-            leader_movements (np.array): size (1, [x_self, v_self, a_self])
-        """
-        train_series = train_series.inputs[0]
-        train_series[:, 0] = self_movements[:, 1]
-        train_series[:, 2] = leader_movements[:, 0] - self_movements[:, 0]
+            train_series (TensorDict): Original training series.
+            self_movements (torch.Tensor): size (T,  [x, v, a]) of the ego vehicle.
+            leader_movements (torch.Tensor): size (T, [x, v, a]) of the leader vehicle.
 
-        return torch.tensor(train_series)
+        Returns:
+            torch.Tensor: Updated training series.
+        """
+        train_series = train_series[TensorNames.INPUTS]
+        train_series[... , 0] = self_movements[... , 1]
+        train_series[... , 2] = leader_movements[... , 0] - self_movements[... , 0]
+
+        return SliceableTensorDict({TensorNames.INPUTS: train_series}, batch_size=train_series.shape[0])
 
     return _update_train_series
 
-@override
 def idm_concat(tensor_list: List[TensorDict]):
     """
         tensor_list: List[TensorDict], no style token, thus reduce to normal concat.
     """
+    if not tensor_list:
+        raise ValueError("tensor_list must be non-empty")
+    first = tensor_list[0]
+    if isinstance(first, TensorDict):
+        return stack_name(tensor_list, dim_name=TensorNames.T)
     return torch.concat(tensor_list, dim=0)
 
 
@@ -81,10 +90,8 @@ def idm_concat(tensor_list: List[TensorDict]):
 # ========== LSTM Model ========== #
 
 
-@override
 def lstm_concat(tensor_list: List[TensorDict]):
     """
         tensor_list: List[TensorDict], no style token, thus reduce to normal concat.
     """
     return torch.concat(tensor_list, dim=0)
-

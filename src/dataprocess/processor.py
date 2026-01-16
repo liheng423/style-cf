@@ -1,14 +1,11 @@
-import os, sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 import datetime
 from utils.utils import *
 from typing import Union, Dict, List, NamedTuple, Tuple
-from dataprocess.kalman import kf
+from src.dataprocess.kalman import kf
 import numpy as np
 from schema import *
 import pandas as pd
-from dataprocess.tableutils import *
+from src.dataprocess.tableutils import *
 
 
 class ProcessResult(NamedTuple):

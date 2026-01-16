@@ -5,6 +5,8 @@ import torch
 from typing import Optional, List
 from torch import Tensor
 import numpy as np
+from src.models.utils import SliceableTensorDict
+from src.stylecf.schema import TensorNames
 
 @staticmethod
 def _predict_kinematics(accs: torch.Tensor, initial_states: torch.Tensor, dt: float):
@@ -95,8 +97,8 @@ class Agent:
 
 
     def _predict_onestep(self, data: torch.Tensor, initial_states, pred_func, if_last):
-        pred = pred_func(self.cf_model, data, if_last)
-        pred_traj = _predict_kinematics(pred, initial_states, self.dt)
+        pred = pred_func(self.cf_model, data, if_last).rename(None)
+        pred_traj = _predict_kinematics(pred, initial_states.rename(None), self.dt)
         return pred_traj
 
     def _update_train_series(self, train_series: torch.Tensor, self_movements: torch.Tensor, leader_movements: torch.Tensor):
@@ -115,7 +117,7 @@ class Agent:
         return NotImplementedError("This function must be rewritten to use")
     
 
-    def predict(self, x_full: TensorDict, self_traj_full: torch.Tensor, leader_traj_full: torch.Tensor, pred_func = lambda model, data: model(data), mask = lambda x, n: x):
+    def predict(self, x_full: SliceableTensorDict, self_traj_full: torch.Tensor, leader_traj_full: torch.Tensor, pred_func = lambda model, data: model(data), mask = lambda x, n: x):
         """
         Args:
             x_full: TensorDict, full model input series (for model prediction)
@@ -132,12 +134,12 @@ class Agent:
 
         self_traj_full = self_traj_full[start_step:]
         leader_traj_full = leader_traj_full[start_step:]
-        x_full = x_full[start_step:]
+        x_full = x_full.sel(T=slice(start_step, None))
 
         num_step = int((self_traj_full.shape[0] - self.historic_step - self.horizon_len + self.rollout_step) // self.rollout_step)
 
 
-        x_ctx = x_full[:self.historic_step]
+        x_ctx = x_full.sel(T=slice(None, self.historic_step))
         self_movements = self_traj_full[:self.historic_step] # only (time, [x_self, v_self, a_self])
 
         horizon_start = self.historic_step
@@ -156,7 +158,9 @@ class Agent:
 
                 # We use train_time_window (seq_len) and pred window (pred_len) as data here, but user-defined mask function
                 # could ignore the second param
-                data = mask(x_ctx[-self.historic_step:], x_full[horizon_window], x_full[:self.historic_step])
+                data = mask(x_ctx.sel(T=slice(-self.historic_step, None)), 
+                            x_full.sel(T=horizon_window), 
+                            x_full.sel(T=slice(None, self.historic_step)))
 
 
                 # predict the acceleration, speed and distance
@@ -164,7 +168,7 @@ class Agent:
 
                 # update self_movements and x_ctx
                 update_window = horizon_window if step == num_step - 1 else rollout_window
-                x_ctx = self._concat([x_ctx, self._update_train_series(x_full[update_window], pred_traj, leader_traj_full[update_window])])
+                x_ctx = self._concat([x_ctx, self._update_train_series(x_full.sel(T=update_window), pred_traj, leader_traj_full[update_window])])
                 self_movements = self._concat([self_movements, pred_traj])
 
         return self._concat([skipped_movements, self_movements])
