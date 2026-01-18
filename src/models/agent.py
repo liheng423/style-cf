@@ -1,15 +1,18 @@
 from ast import Not
+from typing import Callable, Optional, List, Any
+
+import numpy as np
+import torch
 from sklearn.discriminant_analysis import StandardScaler
 from tensordict import TensorDict
-import torch
-from typing import Optional, List
 from torch import Tensor
-import numpy as np
+from torch.nn import Module
+
 from src.models.utils import SliceableTensorDict
 from src.stylecf.schema import TensorNames
 
 @staticmethod
-def _predict_kinematics(accs: torch.Tensor, initial_states: torch.Tensor, dt: float):
+def _predict_kinematics(accs: Tensor, initial_states: Tensor, dt: float) -> Tensor:
     """
     Compute predicted speed and distance based on acceleration.
     
@@ -26,7 +29,7 @@ def _predict_kinematics(accs: torch.Tensor, initial_states: torch.Tensor, dt: fl
 
 
 @staticmethod
-def _predict_kinematics_np(accs: np.ndarray, initial_states: np.ndarray, dt: float):
+def _predict_kinematics_np(accs: np.ndarray, initial_states: np.ndarray, dt: float) -> np.ndarray:
     """
     NumPy version of kinematics prediction.
 
@@ -43,7 +46,7 @@ def _predict_kinematics_np(accs: np.ndarray, initial_states: np.ndarray, dt: flo
 
 
 @staticmethod
-def _predict_kinematics_np_batch(accs: np.ndarray, initial_states: np.ndarray, dt: float):
+def _predict_kinematics_np_batch(accs: np.ndarray, initial_states: np.ndarray, dt: float) -> np.ndarray:
     """
     NumPy version of kinematics prediction for batched data.
 
@@ -73,8 +76,16 @@ def _predict_kinematics_np_batch(accs: np.ndarray, initial_states: np.ndarray, d
 
 class Agent:
 
-    def __init__(self, cf_model, dt: float, horizon_len: int, historic_step: int, scaler: Optional[StandardScaler], 
-                 pred_speed: bool = False, start_timestep=0):
+    def __init__(
+        self,
+        cf_model: Module,
+        dt: float,
+        horizon_len: int,
+        historic_step: int,
+        scaler: Optional[StandardScaler],
+        pred_speed: bool = False,
+        start_timestep: int = 0,
+    ) -> None:
         """
         This class only accepts the trained/calibrated car-following model.
         And used for closed-loop (recursive) prediction for a long period
@@ -96,12 +107,23 @@ class Agent:
         self.start_step: int = start_timestep
 
 
-    def _predict_onestep(self, data: torch.Tensor, initial_states, pred_func, if_last):
+    def _predict_onestep(
+        self,
+        data: Tensor,
+        initial_states: Tensor,
+        pred_func: Callable[[Module, Any, bool], Tensor],
+        if_last: bool,
+    ) -> Tensor:
         pred = pred_func(self.cf_model, data, if_last).rename(None)
         pred_traj = _predict_kinematics(pred, initial_states.rename(None), self.dt)
         return pred_traj
 
-    def _update_train_series(self, train_series: torch.Tensor, self_movements: torch.Tensor, leader_movements: torch.Tensor):
+    def _update_train_series(
+        self,
+        train_series: Tensor,
+        self_movements: Tensor,
+        leader_movements: Tensor,
+    ) -> Tensor:
         """
         Implement how to update the training series with predicted self movements and leader movements.
         """
@@ -109,7 +131,7 @@ class Agent:
 
     
     @staticmethod
-    def _concat(tensor_list: List[TensorDict]):
+    def _concat(tensor_list: List[Tensor | TensorDict]):
         """
         Implement how to stack items in the list along time dimension.
         tensor_list: List[torch.Tensor], each tensor in the shape of (time, [distance, velocity, acceleration])
@@ -117,7 +139,14 @@ class Agent:
         return NotImplementedError("This function must be rewritten to use")
     
 
-    def predict(self, x_full: SliceableTensorDict, self_traj_full: torch.Tensor, leader_traj_full: torch.Tensor, pred_func = lambda model, data: model(data), mask = lambda x, n: x):
+    def predict(
+        self,
+        x_full: SliceableTensorDict,
+        self_traj_full: Tensor,
+        leader_traj_full: Tensor,
+        pred_func: Callable[[Module, Any, bool], Tensor] = lambda model, data, *_: model(data),
+        mask: Callable[[SliceableTensorDict, SliceableTensorDict, SliceableTensorDict], Any] = lambda x, *_: x,
+    ) -> Tensor:
         """
         Args:
             x_full: TensorDict, full model input series (for model prediction)

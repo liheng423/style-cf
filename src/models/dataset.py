@@ -1,14 +1,62 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
 from tensordict import TensorDict
+import numpy as np
+from src.stylecf.schema import TensorNames
+from typing import Optional
+
+def _fit_scaler(scaler, data: np.ndarray):
+    shape = data.shape
+    flat = data.reshape(-1, shape[-1])
+    scaler.fit(flat)
+    return scaler
+
+def _transform(scaler, data: np.ndarray):
+    shape = data.shape
+    flat = data.reshape(-1, shape[-1])
+    flat_scaled = scaler.transform(flat)
+    return flat_scaled.reshape(shape)
+
+
+
+def make_transform(scalers_list, x_groups):
+    scaler_by_key = {}
+    for idx, group in enumerate(x_groups):
+        if group.get("transform", True):
+            scaler_by_key[group["key"]] = scalers_list[idx]
+
+    def _apply_transform(x_payload):
+        out = dict(x_payload)
+        for key, scaler in scaler_by_key.items():
+            if key in out and out[key] is not None:
+                out[key] = _transform(scaler, out[key])
+        return out
+
+    return _apply_transform
+
+
+def _to_named_tensor(value, names) -> Optional[torch.Tensor]:
+    if value is None:
+        return None
+    tensor = value if isinstance(value, torch.Tensor) else torch.tensor(value)
+    if tensor.names is None or any(name is None for name in tensor.names):
+        tensor = tensor.refine_names(*names)
+    return tensor
 
 class TransformerDataset(Dataset):
-    def __init__(self, x_seq_enc=None, x_seq_dec=None, x_static=None, y_seq=None, y_static=None, data_config=None):
-        self.x_seq_enc = torch.tensor(x_seq_enc).float()
-        self.x_seq_dec = torch.tensor(x_seq_dec).float()
-        self.x_static = torch.tensor(x_static).float() if x_static is not None else None
-        self.y_seq = torch.tensor(y_seq).float()
-        self.y_static = torch.tensor(y_static).float() if y_static is not None else None
+    def __init__(self, x_seq_enc=None, x_seq_dec=None, x_static=None, y_seq=None, y_static=None, data_config: Optional[dict]=None, transform=None):
+        if transform is not None:
+            x_payload = {"enc_x": x_seq_enc, "dec_x": x_seq_dec, "x_static": x_static}
+            x_payload = transform(x_payload)
+            x_seq_enc = x_payload.get("enc_x")
+            x_seq_dec = x_payload.get("dec_x")
+            x_static = x_payload.get("x_static")
+
+        self.x_seq_enc = _to_named_tensor(x_seq_enc, [TensorNames.N, TensorNames.T, TensorNames.F]).float()
+        self.x_seq_dec = _to_named_tensor(x_seq_dec, [TensorNames.N, TensorNames.T, TensorNames.F]).float()
+        self.x_static = _to_named_tensor(x_static, [TensorNames.N, TensorNames.F]).float() if x_static is not None else None
+        self.y_seq = _to_named_tensor(y_seq, [TensorNames.N, TensorNames.T, TensorNames.F]).float()
+        self.y_static = _to_named_tensor(y_static, [TensorNames.N, TensorNames.F]).float() if y_static is not None else None
 
         self.num_samples = self.x_seq_enc.shape[0]
         self.total_len = self.x_seq_enc.shape[1]
@@ -16,7 +64,7 @@ class TransformerDataset(Dataset):
         self.seq_len = data_config["seq_len"]
         self.label_len = data_config["label_len"]
         self.pred_len = data_config["pred_len"]
-        self.stride = data_config.get("stride", 1) if data_config else 1
+        self.stride = data_config.get("stride", 1)
 
         self.indices = [
             (i, t)
@@ -60,9 +108,15 @@ class TransformerDataset(Dataset):
         return (x_enc, x_dec, x_static), (y_seq, y_static)
 
 class StyledTransfollowerDataset(TransformerDataset):
-    def __init__(self, x_seq_enc, x_seq_dec, x_style, y_seq, data_config=None):
+    def __init__(self, x_seq_enc, x_seq_dec, x_style, y_seq, data_config=None, transform=None):
+        if transform is not None:
+            x_payload = {"enc_x": x_seq_enc, "dec_x": x_seq_dec, "style": x_style}
+            x_payload = transform(x_payload)
+            x_seq_enc = x_payload.get("enc_x")
+            x_seq_dec = x_payload.get("dec_x")
+            x_style = x_payload.get("style")
         super().__init__(x_seq_enc, x_seq_dec, None, y_seq, None, data_config)
-        self.x_style = x_style
+        self.x_style = _to_named_tensor(x_style, [TensorNames.N, TensorNames.T, TensorNames.F]).float()
 
     def __getitem__(self, idx):
         (x_enc, x_dec, x_static), (y_seq, y_static) = super().__getitem__(idx)
@@ -71,6 +125,6 @@ class StyledTransfollowerDataset(TransformerDataset):
         # 样本 style: 从开头到 t + seq_len 的 window
         x_style = self.x_style[i, t: t + self.seq_len, :]
 
-        x = x_enc, x_dec, x_style
-        y = y_seq
+        x = TensorDict({"enc_x": x_enc, "dec_x": x_dec, "style": x_style}, batch_size=[])
+        y = TensorDict({"y_seq": y_seq}, batch_size=[])
         return x, y

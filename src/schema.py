@@ -48,5 +48,6 @@ class CFNAMES:
     DELTA_V = "DELTA_V"
     SELF_ID = "SELF_ID"
     LEAD_ID = "LEAD_ID"
+    TIME = "TIME"
     REACT = "reaction"
     THW = "timeheadway"

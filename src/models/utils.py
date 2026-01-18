@@ -1,8 +1,10 @@
 from typing import List
 import torch
 from tensordict import TensorDict
+from torch.utils.data._utils.collate import default_collate
 import numpy as np
 from src.schema import CFNAMES
+from src.stylecf.schema import TensorNames
 ##
 # batch = TensorDict({
 #     "enc_x": torch.randn([N, F, T], names=["N", "T", "F"]),
@@ -10,7 +12,41 @@ from src.schema import CFNAMES
 #     "style": torch.randn([N, F], , names=["N", "F"])
 # }, batch_size=[N])
 ## 
+def _stack_named_tensors(tensors):
+    names = tensors[0].names
+    unnamed = [t.rename(None) if t.names is not None else t for t in tensors]
+    stacked = torch.stack(unnamed, dim=0)
+    if names is not None:
+        stacked = stacked.refine_names(TensorNames.N, *names)
+    return stacked
 
+
+def _stack_tensordict(batch):
+    if not batch:
+        return TensorDict({}, batch_size=[0])
+    first = batch[0]
+    stacked = {}
+    for key in first.keys():
+        tensors = [td[key] for td in batch]
+        stacked[key] = _stack_named_tensors(tensors)
+    return TensorDict(stacked, batch_size=[len(batch)])
+
+
+def _collate(batch):
+    if not batch:
+        return batch
+    first = batch[0]
+    if isinstance(first, TensorDict):
+        return _stack_tensordict(batch)
+    if (
+        isinstance(first, tuple)
+        and len(first) == 2
+        and isinstance(first[0], TensorDict)
+        and isinstance(first[1], TensorDict)
+    ):
+        xs, ys = zip(*batch)
+        return _stack_tensordict(list(xs)), _stack_tensordict(list(ys))
+    return default_collate(batch)
 
 
 def stack_name(tensordict_list: list[TensorDict], dim_name: str):
@@ -68,7 +104,7 @@ class SliceableTensorDict(TensorDict):
     def __init__(self, source=None, batch_size=None, names=None):
         super().__init__(source=source, batch_size=batch_size, names=names)
 
-    def sel(self, item=None, **indexers):
+    def sel(self, item=None, **indexers) -> 'SliceableTensorDict':
         """
         Slice tensors along named dimensions.
 
@@ -193,8 +229,19 @@ class SampleDataPack:
         col_index = self.names[col_name]
         self.data[:, :, col_index] = col[:, :, 0]
 
+    def head(self, n: int) -> 'SampleDataPack':
+        """
+        Get the first n samples of the data.
 
-    def __getitem__(self, key):
+        Args:
+            n (int): Number of samples to retrieve.
+
+        Returns:
+            DataPack: A new DataPack instance with the first n samples.
+        """
+        return SampleDataPack(self.data[:n], self.names.copy(), self.rise, self.kph, self.kilo_norm, self.dt)
+
+    def __getitem__(self, key) -> 'SampleDataPack':
         """
         Supports:
         - [i, j, "feature_name"]
@@ -397,3 +444,4 @@ def load_zen_data(path, rise, in_kph=False, kilo_norm=False):
     datapack = SampleDataPack(data, names, rise=rise, kph=in_kph, kilo_norm=kilo_norm, dt=0.1)
 
     return datapack
+# 

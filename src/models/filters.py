@@ -1,11 +1,11 @@
 import numpy as np
 from typing import Callable, List
-from src.models.datapack import DataPack
+from src.models.utils import SampleDataPack
 from src.schema import CFNAMES
 from tslearn.metrics import dtw, dtw_path
 
 class CFFilter:
-    def __init__(self, datapack: DataPack, filter_config):
+    def __init__(self, datapack: SampleDataPack, filter_config):
         self.datapack = datapack
         self.data = datapack.data
         self.names = datapack.names
@@ -115,6 +115,6 @@ class CFFilter:
 
         return filter_index
 
-    def filter(self, funcs: List[Callable[["CFFilter"], np.ndarray]]) -> np.ndarray:
+    def filter(self, funcs: List[Callable[["CFFilter"], np.ndarray]]) -> SampleDataPack:
         masks = [func() for func in funcs]
-        return DataPack(self.datapack.data[np.logical_and.reduce(masks)], self.datapack.names, self.datapack.rise, self.datapack.kph, self.datapack.kilo_norm)
+        return SampleDataPack(self.datapack.data[np.logical_and.reduce(masks)], self.datapack.names, self.datapack.rise, self.datapack.kph, self.datapack.kilo_norm, self.datapack.dt)
