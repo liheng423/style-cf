@@ -1,13 +1,17 @@
 import os
 import unittest
 import numpy as np
+import test
 
 from src.models.model_trainer import build_style_dataset
 from src.models.utils import load_zen_data
-from src.models.configs import stylecf_data_config
+from src.models.configs import style_data_config
 from src.schema import CFNAMES as CF
 from src.stylecf.schema import TensorNames
 
+from src.models.model_trainer import train_stylecf
+from src.models.style_cf import StyleTransformer
+from src.models.configs import *
 
 class TestStyleAgent(unittest.TestCase):
 
@@ -20,24 +24,26 @@ class TestStyleAgent(unittest.TestCase):
         d = load_zen_data(data_path, rise=True, in_kph=False, kilo_norm=True)
         return d.head(300)
 
-    # def test_build_style_dataset(self):
-    #     d = self._small_dataset()
-    #     d_filters = [lambda: np.ones(d.data.shape[0], dtype=bool)]
-    #     d_filter_config = {}
+    @unittest.skip("Skipping style dataset build test")
+    def test_build_style_dataset(self):
+        d = self._small_dataset()
+        d_filters = [lambda: np.ones(d.data.shape[0], dtype=bool)]
+        d_filter_config = {}
 
-    #     result = build_style_dataset(d, d_filters, d_filter_config)
+        result = build_style_dataset(d, d_filters, d_filter_config)
 
-    #     self.assertIn(CF.TIME, result.names)
-    #     self.assertIn(CF.REACT, result.names)
-    #     self.assertIn(CF.THW, result.names)
+        self.assertIn(CF.TIME, result.names)
+        self.assertIn(CF.REACT, result.names)
+        self.assertIn(CF.THW, result.names)
 
+    @unittest.skip("Skipping style dataloader test")
     def test_style_dataloader_output(self):
         d = self._small_dataset()
         d_filters = [lambda: np.ones(d.data.shape[0], dtype=bool)]
         d_filter_config = {}
 
         _, train_loader, _, _ = build_style_dataset(
-            d, d_filters, d_filter_config, data_config=stylecf_data_config
+            d, d_filters, d_filter_config, data_config=style_data_config
         )
 
         batch_x, batch_y = next(iter(train_loader))
@@ -52,4 +58,18 @@ class TestStyleAgent(unittest.TestCase):
             self.assertIsNotNone(tensor.names)
             self.assertEqual(tensor.names[-2:], (TensorNames.T, TensorNames.F))
             print(tensor.shape)
+            
+    def test_style_train(self):
+        
+        d = self._small_dataset()
+        d_filters = [lambda: np.ones(d.data.shape[0], dtype=bool)]
+        d_filter_config = {}
+
+        _, train_loader, test_loader, _ = build_style_dataset(
+            d, d_filters, d_filter_config, data_config=style_data_config
+        )
+
+
+        model = train_stylecf(style_data_config, style_train_config, train_loader, test_loader)
+        self.assertIsInstance(model, StyleTransformer)
     

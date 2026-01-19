@@ -1,9 +1,13 @@
+from tensordict import TensorDict
+from traitlets import Any
 from tslearn.metrics import dtw_path
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
+
+from src.models.utils import SliceableTensorDict, drop_tensor_names
 
 class LossFunction:
 
@@ -53,7 +57,7 @@ class TransfollowerStyleToDecoder(nn.Module):
         self.d_model = d_model
         self.settings = transfollower_config
 
-        enc_in, dec_in = transfollower_config["enc_in"], transfollower_config["dec_in"]
+        enc_in, dec_in = len(self.settings["x_groups"]["enc_x"]["features"]), len(self.settings["x_groups"]["dec_x"]["features"])
 
         self.transformer = nn.Transformer(
             d_model=d_model,
@@ -174,15 +178,16 @@ class StyleTransformer(nn.Module):
         self.use_dummy_style = False
         self.embed_dim = embed_dim
 
-    def forward(self, x):
+    def forward(self, x: TensorDict):
         """
-        x: tuple(enc_inp, dec_inp, style)
-        - enc_inp: (B, T_enc, enc_in)
-        - dec_inp: (B, T_dec, dec_in)
-        - style: (B, d_model) expanded on time dimension
+        x: TensorDict with keys "enc_x", "dec_x", "style"
+        - enc_x: (B, T_enc, enc_in)
+        - dec_x: (B, T_dec, dec_in)
+        - style: (B, T_style, d_style)
         """
-        
-        enc_inp, dec_inp, style = x
+        enc_inp = drop_tensor_names(x["enc_x"])
+        dec_inp = drop_tensor_names(x["dec_x"])
+        style = drop_tensor_names(x["style"])
         B = enc_inp.size(0)
 
         if self.use_dummy_style:
@@ -267,3 +272,54 @@ def batch_apply(
     num_samples = args_list[0].shape[0]
     results = [func(*(arg[i] for arg in args_list)) for i in tqdm(range(num_samples))]
     return np.stack(results) 
+
+######## MASK ##########
+def transformer_mask(data_config):
+    """
+    Construct a masked decoder input by combining past (from seq_data) and future (from pred_data),
+    and masking the future portion to avoid leakage.
+    """
+    def _mask(seq_data: SliceableTensorDict, pred_data: SliceableTensorDict, *_: Any) -> SliceableTensorDict:
+        label_len = data_config["label_len"]
+        pred_len = data_config["pred_len"]
+
+        # encoder input stays the same
+        enc_seq_series = seq_data["enc_x"]
+        dec_seq_series = seq_data["dec_x"]
+        style_seq_series = seq_data["style"] if "style" in seq_data.keys() else None
+
+        dec_pred_series = pred_data["dec_x"]
+
+        # take last `label_len` rows from seq_data's decoder input
+        dec_past = dec_seq_series[-label_len:].clone()  # shape: (label_len, dim)
+
+        dec_future = dec_past.new_zeros((pred_len, dec_past.shape[-1]))
+        if dec_past.names is not None:
+            dec_future = dec_future.refine_names(*dec_past.names)
+
+        # take pred_len rows from pred_data's decoder input
+        leader_v_pred = dec_pred_series[:, 1].clone()  # shape: (pred_len, dim)
+
+        # compute the mean of feature 0 in the past (label_len) decoder steps
+        mean_val = torch.mean(dec_past[:, 0])
+
+        # mask feature 0 in future decoder input
+        dec_future[:, 0] = mean_val
+        dec_future[:, 1] = leader_v_pred
+
+        
+
+        # concatenate past and masked future
+        dec_series_masked = torch.cat([dec_past, dec_future], dim=0)  # shape: (label_len + pred_len, dim)
+
+
+        out = {"enc_x": enc_seq_series, "dec_x": dec_series_masked}
+        if style_seq_series is not None:
+            out["style"] = style_seq_series
+
+        return SliceableTensorDict(out, batch_size=seq_data.batch_size, names=seq_data.names)
+    
+    return _mask
+
+
+style_pred_func = lambda model, data, *args: model(data) 

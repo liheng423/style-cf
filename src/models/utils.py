@@ -1,4 +1,6 @@
 from typing import List
+import os
+from datetime import datetime
 import torch
 from tensordict import TensorDict
 from torch.utils.data._utils.collate import default_collate
@@ -12,6 +14,11 @@ from src.stylecf.schema import TensorNames
 #     "style": torch.randn([N, F], , names=["N", "F"])
 # }, batch_size=[N])
 ## 
+def drop_tensor_names(tensor: torch.Tensor) -> torch.Tensor:
+    if getattr(tensor, "names", None) is None:
+        return tensor
+    return tensor.rename(None)
+
 def _stack_named_tensors(tensors):
     names = tensors[0].names
     unnamed = [t.rename(None) if t.names is not None else t for t in tensors]
@@ -47,7 +54,6 @@ def _collate(batch):
         xs, ys = zip(*batch)
         return _stack_tensordict(list(xs)), _stack_tensordict(list(ys))
     return default_collate(batch)
-
 
 def stack_name(tensordict_list: list[TensorDict], dim_name: str):
     """
@@ -445,3 +451,11 @@ def load_zen_data(path, rise, in_kph=False, kilo_norm=False):
 
     return datapack
 # 
+
+def model_save(model_dict, path):
+    
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+
+    payload = model_dict.state_dict() if hasattr(model_dict, "state_dict") else model_dict
+    torch.save(payload, path)
+    return path

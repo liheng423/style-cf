@@ -21,9 +21,9 @@ def _transform(scaler, data: np.ndarray):
 
 def make_transform(scalers_list, x_groups):
     scaler_by_key = {}
-    for idx, group in enumerate(x_groups):
+    for idx, (key, group) in enumerate(x_groups.items()):
         if group.get("transform", True):
-            scaler_by_key[group["key"]] = scalers_list[idx]
+            scaler_by_key[key] = scalers_list[idx]
 
     def _apply_transform(x_payload):
         out = dict(x_payload)

@@ -2,16 +2,19 @@
 from typing import List
 import numpy as np
 from sklearn.model_selection import train_test_split
+from tqdm import tqdm
+import torch
 from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from tensordict import TensorDict
 from src.models import utils
 
 from src.models.filters import CFFilter
-from src.models.style_cf import batch_apply, reaction_time, time_headway
+from src.models.style_cf import StyleTransformer, batch_apply, reaction_time, time_headway, transformer_mask
 from src.models.utils import SampleDataPack
 from src.models import dataset
 from src.schema import CFNAMES as CF
-
+from src.models.configs import style_train_config
 
 def build_dataset(d: SampleDataPack, d_filters: List[CFFilter], d_filter_config: dict) -> SampleDataPack:
     """
@@ -74,8 +77,8 @@ def pipeline(d: SampleDataPack, data_config: dict, seed: int) -> tuple[DataLoade
     x_groups = data_config["x_groups"]
     y_groups = data_config["y_groups"]
 
-    x_data = [d[:, :, group["features"]] for group in x_groups]
-    y_data = [d[:, :, group["features"]] for group in y_groups]
+    x_data = [d[:, :, group["features"]] for group in x_groups.values()]
+    y_data = [d[:, :, group["features"]] for group in y_groups.values()]
 
     num_samples = y_data[0].shape[0]
     indices = np.arange(num_samples)
@@ -116,3 +119,135 @@ def pipeline(d: SampleDataPack, data_config: dict, seed: int) -> tuple[DataLoade
         collate_fn=utils._collate,
     )
     return train_loader, test_loader, scalers
+
+def train_stylecf(model_config, train_config, train_loader: DataLoader, test_loader: DataLoader):
+    
+    
+    model = model_config["model_name"](model_config)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
+
+    style_mask = transformer_mask(model_config)
+    style_pred_func = lambda m, d, *args: m(d)
+    
+    optim_func = train_config["optim"]
+    criterion = train_config["loss_func"]
+    
+    train_losses = []
+    val_losses = []
+    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+
+    num_epoch = train_config["num_epoch"]
+
+    model.use_dummy_style = False
+
+
+    # STAGE 1
+    assert isinstance(model, StyleTransformer)
+
+    # for param in model.embedder.parameters():
+    #     param.requires_grad = False
+
+    optimizer = optim_func(model.parameters(), lr=1e-4)
+
+    scheduler = ReduceLROnPlateau(
+        optimizer, 
+        mode='min',       
+        factor=1e-1,      
+        patience=5,       
+        verbose=True     
+    )
+
+
+        
+    def _train_loop(model, train_loader, test_loader, optimizer, criterion, num_epochs):
+
+        best_val_loss = float('inf')  
+            
+        for epoch in range(num_epochs):
+
+            # train_sampler.set_epoch(epoch)
+
+            # train_loss = train_recursive(model, train_loader, criterion, optimizer, multi_agents, train_config)
+            # val_loss = evaluate_recursive(model, test_loader, criterion, multi_agents, train_config)
+            train_loss = train(model, train_loader, criterion, optimizer, train_config)
+            val_loss = evaluate(model, test_loader, criterion, train_config)
+            train_losses.append(train_loss)
+            val_losses.append(val_loss)
+
+            ## Learning rate ##
+
+            scheduler.step(val_loss) 
+            current_lr = optimizer.param_groups[0]['lr']
+
+
+            ### Model Saving ###
+
+            # Save model if the validation loss is the best so far
+            if epoch >= 5 and val_loss < best_val_loss:
+                best_val_loss = val_loss
+                # Save the model with the best validation loss
+                utils.model_save(model, train_config["best_model_path"])
+                print(f"Saved Best Model at Epoch {epoch+1} with Val Loss: {val_loss:.4f}")
+
+    return _train_loop(model, train_loader, test_loader, 
+    optimizer, criterion, num_epoch)    
+
+
+def train(model, dataloader, criterion, optimizer, train_config):
+
+    device = train_config["device"]
+    max_norm = train_config["max_norm"]
+    dt = train_config["dt"]
+
+
+    model.train()
+    epoch_loss = 0.0
+    num_batches = len(dataloader)
+
+    for x, y in tqdm(dataloader):
+        # move to device
+
+        x, y = x.to(device), y.to(device)
+
+        # 前向传播
+        optimizer.zero_grad()
+        outputs = model(x)
+        loss = criterion(outputs, y, dt)  # dt = 0.1
+        
+        # 反向传播和优化
+        loss.backward()
+        if max_norm is not None:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_norm)
+        
+        optimizer.step()
+
+        epoch_loss += loss.item()
+
+    return epoch_loss / num_batches
+
+def evaluate(model, dataloader, criterion, train_config):
+
+    device = train_config["device"]
+    dt = train_config["dt"]
+    
+
+    model.eval()
+    running_loss = 0.0
+    num_batches = len(dataloader)
+
+    with torch.no_grad():
+        for x, y in dataloader:
+            # 将数据移动到设备
+            x, y = x.to(device), y.to(device)
+
+            # 前向传播
+            outputs = model(x)
+            loss = criterion(outputs, y, dt)
+
+            running_loss += loss.item()
+
+    return running_loss / num_batches

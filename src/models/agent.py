@@ -153,6 +153,7 @@ class Agent:
             self_traj_full: torch.Tensor (time, [x_self, v_self, a_self]) full self trajectory 
             leader_traj_full: torch.Tensor (time, [x_leader, v_leader, a_leader]) full leader trajectory
             pred_func: function
+            mask: function to mask the input data for model prediction
         """
         
         assert self_traj_full.shape[1] == 3 and leader_traj_full.shape[1] == 3
