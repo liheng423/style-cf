@@ -1,10 +1,11 @@
-from typing import List
+from typing import Callable, Dict, List
 import os
 from datetime import datetime
 import torch
 from tensordict import TensorDict
 from torch.utils.data._utils.collate import default_collate
 import numpy as np
+from src.models.kine_utils import _predict_kinematics_np
 from src.schema import CFNAMES
 from src.stylecf.schema import TensorNames
 ##
@@ -410,11 +411,11 @@ class SampleDataPack:
         v = self[:, :, CFNAMES.SELF_V]  # (N, T)
 
         # Build ground truth: shape (N, T, 2) with (x, v, a)
-        initial_states = np.stack([x, v], dim=2)  # (N, T, 2)
+        initial_states = np.stack([x, v], axis=2)  # (N, T, 2)
         initial_states = initial_states[:, start_idx - 1]
 
         # Predict kinematics using acceleration
-        preds = agent._predict_kinematics_np_batch(accs, initial_states, self.dt)  
+        preds = _predict_kinematics_np(accs, initial_states, self.dt)
 
         # Compute error
         pos_error = x[:, start_idx:] - preds[:, :, 0]
@@ -452,6 +453,56 @@ def load_zen_data(path, rise, in_kph=False, kilo_norm=False):
     return datapack
 # 
 
+def build_id_datapack(
+    datapack: SampleDataPack,
+    require_const_self_id: bool = True,
+    key_by_id: bool = False,
+) -> Dict[int, SampleDataPack]:
+    """
+    Group samples by SELF_ID to create an id_datapack.
+
+    Args:
+        datapack: Source SampleDataPack with SELF_ID in feature names.
+        require_const_self_id: If True, only keep samples where SELF_ID is
+            constant over time.
+        key_by_id: If True, use the vehicle ID as dict key; otherwise use
+            0..N-1 indices for compatibility with calibrate_idm.
+    """
+    if CFNAMES.SELF_ID not in datapack.names:
+        raise KeyError(f"{CFNAMES.SELF_ID} not found in datapack.names")
+
+    id_idx = datapack.names[CFNAMES.SELF_ID]
+    ids = datapack.data[:, :, id_idx]
+    first_ids = ids[:, 0]
+
+    if require_const_self_id:
+        same_id = np.all(ids == ids[:, [0]], axis=1)
+    else:
+        same_id = np.ones(ids.shape[0], dtype=bool)
+
+    unique_ids = np.unique(first_ids[same_id])
+
+    id_datapack: Dict[int, SampleDataPack] = {}
+    for i, vid in enumerate(unique_ids):
+        mask = (first_ids == vid) & same_id
+        if not np.any(mask):
+            continue
+        sub = SampleDataPack(
+            datapack.data[mask].copy(),
+            datapack.names.copy(),
+            datapack.rise,
+            datapack.kph,
+            datapack.kilo_norm,
+            datapack.dt,
+        )
+        key = int(vid) if key_by_id else i
+        id_datapack[key] = sub
+
+    return id_datapack
+
+
+## saving functions
+
 def model_save(model_dict, path):
     
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
@@ -459,3 +510,14 @@ def model_save(model_dict, path):
     payload = model_dict.state_dict() if hasattr(model_dict, "state_dict") else model_dict
     torch.save(payload, path)
     return path
+
+
+def ensure_dir(folder):
+    """
+        Ensure the folder exists. If not, create it.
+    """
+    os.makedirs(folder, exist_ok=True)
+    
+
+
+    

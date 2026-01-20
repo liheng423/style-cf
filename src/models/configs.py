@@ -1,15 +1,45 @@
+from tarfile import data_filter
 import torch.optim as optim
 import time
 from datetime import datetime
 from sklearn.preprocessing import StandardScaler
 import torch
-from src.models.dataset import StyledTransfollowerDataset
+from src.models.benchmarks import idm_update_train_series
+from src.models.datascalers import DataScaler
+from src.models.dataset import StyledTransfollowerDataset, LSTMDataset
 from src.schema import CFNAMES as CF
-import torch.nn
-from src.models.loss import StyleLoss
+import torch.nn as nn
+from src.models.loss import LossFunctions, StyleLoss
 from src.models.style_cf import StyleTransformer, transformer_mask, style_pred_func 
 best_model_path = f"models/best-model-{datetime.now():%Y%m%d-%H%M%S}.pth"
 
+
+
+data_filter_config = {
+    "acceleration_range": (-6, 6), # originally (-6, 6)
+    "speed_range": (0, 30),
+    "allow_leader_lc": False,
+    "spacing_range": (10, 100), # used to rule out the pairs without CF.
+    "length_thres": 6,
+    "dtw_range": (0, 30),
+    "thw": (0, 2),
+    "pos_tol_range": (0, 2.5),
+    "r_time_range": (0, 2),
+    "spd_tol_range": (0, 100)
+}
+
+filter_names = [
+    "time_headway_check",
+    "all_same_leader",
+    "speed_in_range",
+    "veh_exist",
+    # "dtw_in_range",
+    "space_in_range",
+    "inconsistent",
+    # "reaction_in_range",
+]
+
+##### MODEL CONFIGS ######
 
 style_data_config = {
     "batch_size": 64,
@@ -48,5 +78,65 @@ style_train_config = {
     ### recursive ###
     "pred_func": style_pred_func,
     "mask": transformer_mask,
+    "logger": {
+        "mode": "normal"
+    }
 }
 
+
+lstm_data_config = {
+    "batch_size": 64,
+    "train_data_ratio": 0.8,
+    "seq_len": 40,
+    "pred_len": 20,
+    "stride": 20,
+    "scaler": StandardScaler,
+    "dataset": LSTMDataset,
+    "in_features": [CF.SELF_V, CF.DELTA_X, CF.DELTA_V, CF.SELF_L, CF.LEAD_L],
+
+    "eva_features": [CF.SELF_X, CF.SELF_V, CF.SELF_A, CF.DELTA_X, CF.LEAD_X]
+}
+
+lstm_model_config = {
+    "model_name": "CF_LSTM",
+    "num_feature": len(lstm_data_config["in_features"]),
+    "pred_step": lstm_data_config["pred_len"],
+    "batch_norm": False,
+    
+    "bidirectional": False,
+    "dropout": 0,
+    "regular_output": False,
+    "regular_range": (-6, 6),  # disabled when regular_output set to false
+    "regular_func": "tanh", # choose from tahn and sigmoid, disabled when regular_output set to false
+    "activation_func": nn.Sigmoid(),
+    "activate_name": "sigmoid",
+    "state_num_feat": 10,
+}
+
+idm_calibration_config = {
+
+    "features": [CF.SELF_V, CF.LEAD_V, CF.DELTA_X],
+    "downsample": 0.5,
+    "loss": LossFunctions.acc_spacing_mse,
+    "resolution": 0.1,
+    "pred_horizon": 0.5,
+    "historic_step": 0.5,
+    "update_func": idm_update_train_series,
+    "start_step": 0.5,
+    "scaler": DataScaler(),
+    "pred_func": lambda model, data, *args: model(data),
+    "mask": lambda x, *args: x["inputs"],
+    "randomseed": 42,
+    "save_path": "./data/idm_calibration",
+    "device": "cpu"
+}
+
+
+
+##### TEST CONFIGS ######
+
+
+test_config = {
+    "datapath": "F:\DATA\ZenTraffic\ZenTraffic90kalman_new.npy",
+    "device": "cpu",
+}

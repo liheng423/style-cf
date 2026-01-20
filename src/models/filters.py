@@ -99,14 +99,14 @@ class CFFilter:
         return filter_index
     
     def inconsistent(self) -> np.ndarray: 
-        self_pos_cons, self_spd_cons = self.datapack.check_consistency(acc_col=CFNAMES.SELF_A, spd_col=CFNAMES.SELF_V, x_col=CFNAMES.SELF_X)
-        leader_pos_cons, leader_spd_cons = self.datapack.check_consistency(acc_col=CFNAMES.LEAD_A, spd_col=CFNAMES.LEAD_V, x_col=CFNAMES.LEAD_X)
+        self_pos_cons, self_spd_cons = self.datapack.check_consistency()
+        leader_pos_cons, leader_spd_cons = self.datapack.check_consistency()
 
         self_pos_cons, self_spd_cons = np.abs(self_pos_cons).mean(axis=1), np.abs(self_spd_cons).mean(axis=1)
         leader_pos_cons, leader_spd_cons = np.abs(leader_pos_cons).mean(axis=1), np.abs(leader_spd_cons).mean(axis=1)
 
-        pos_cons = np.maximum(self_pos_cons, leader_pos_cons).numpy()
-        spd_cons = np.maximum(self_spd_cons, leader_spd_cons).numpy()
+        pos_cons = np.maximum(self_pos_cons, leader_pos_cons)
+        spd_cons = np.maximum(self_spd_cons, leader_spd_cons)
 
         pos_lower, pos_upper = self.config["pos_tol_range"]
         spd_lower, spd_upper = self.config["spd_tol_range"]

@@ -15,8 +15,12 @@ from src.models.utils import SampleDataPack
 from src.models import dataset
 from src.schema import CFNAMES as CF
 from src.models.configs import style_train_config
+from src.utils.logger import logger
 
-def build_dataset(d: SampleDataPack, d_filters: List[CFFilter], d_filter_config: dict) -> SampleDataPack:
+
+### Machine Learning Model ###
+
+def build_dataset(d: SampleDataPack, d_filters: List, d_filter_config: dict) -> SampleDataPack:
     """
     Build the dataset for car-following model training.
     """
@@ -24,6 +28,8 @@ def build_dataset(d: SampleDataPack, d_filters: List[CFFilter], d_filter_config:
     d.append_col(d[:, :, CF.LEAD_V] - d[:, :, CF.SELF_V], CF.DELTA_V)
     d.append_col(d[:, :, CF.LEAD_X] - d[:, :, CF.SELF_X], CF.DELTA_X)
     d_filter = CFFilter(d, d_filter_config)
+    if d_filters and isinstance(d_filters[0], str):
+        d_filters = [getattr(d_filter, name) for name in d_filters]
     d = d_filter.filter(d_filters)
 
     d.force_consistent()
@@ -120,14 +126,17 @@ def pipeline(d: SampleDataPack, data_config: dict, seed: int) -> tuple[DataLoade
     )
     return train_loader, test_loader, scalers
 
+@logger.decorator("train_stylecf")
 def train_stylecf(model_config, train_config, train_loader: DataLoader, test_loader: DataLoader):
     
     
     model = model_config["model_name"](model_config)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = model.to(device)
 
+
+    model = model.to(device)
+    
     style_mask = transformer_mask(model_config)
     style_pred_func = lambda m, d, *args: m(d)
     
@@ -136,15 +145,20 @@ def train_stylecf(model_config, train_config, train_loader: DataLoader, test_loa
     
     train_losses = []
     val_losses = []
-    
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
 
     num_epoch = train_config["num_epoch"]
 
     model.use_dummy_style = False
 
+    logger.info(f"Starting Style-cf Training for {num_epoch} epochs on {device}")
+    logger.info(f"Model: {model}")
+    logger.info(f"Optimizer: {optim_func}")
+    logger.info(f"Loss Function: {criterion}")
+    logger.info(f"Using Style: {not model.use_dummy_style}")
 
+
+
+    # ======== START OF TRAINING ======== #
     # STAGE 1
     assert isinstance(model, StyleTransformer)
 
