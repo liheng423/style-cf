@@ -73,16 +73,17 @@ def idm_update_train_series(simulator):
 
     return _update_train_series
 
-def idm_concat(tensor_list: List[TensorDict]):
+def idm_concat(tensor_list: List[SliceableTensorDict]):
     """
-        tensor_list: List[TensorDict], no style token, thus reduce to normal concat.
+        tensor_list: List[TensorDict] or List[torch.Tensor], no style token, thus reduce to normal concat.
     """
     if not tensor_list:
         raise ValueError("tensor_list must be non-empty")
     first = tensor_list[0]
-    if isinstance(first, TensorDict):
-        return stack_name(tensor_list, dim_name=TensorNames.T)
+    if isinstance(first, SliceableTensorDict):
+        return stack_name(tensor_list, TensorNames.T)
     return torch.concat(tensor_list, dim=0)
+
 
 
 # ========== End of IDM Model ========== #

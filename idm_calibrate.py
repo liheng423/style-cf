@@ -19,7 +19,7 @@ def _dataset(head=None):
 
 def main(): 
 
-    datapack = _dataset()
+    datapack = _dataset(10000)
   
     datapack = build_dataset(datapack, filter_names, data_filter_config)
     id_datapack = build_id_datapack(

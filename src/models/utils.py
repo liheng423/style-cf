@@ -179,6 +179,10 @@ class SliceableTensorDict(TensorDict):
 
         return SliceableTensorDict(new_data, batch_size=self.batch_size, names=self.names)
     
+    def to(self, device):
+        new_data = {k: v.to(device) for k, v in self.items()}
+        return SliceableTensorDict(new_data, batch_size=self.batch_size, names=self.names)
+    
 
 
 

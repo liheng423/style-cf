@@ -26,7 +26,7 @@ def evaluate_recursive(model: nn.Module, dataloader: DataLoader, criterion: nn.M
     device = config["device"]
     pred_func = config["pred_func"]
     mask = config["mask"]
-
+    dt = config["resolution"]
     model.eval()
     running_loss = 0.0
     num_batches = len(dataloader)
@@ -34,17 +34,16 @@ def evaluate_recursive(model: nn.Module, dataloader: DataLoader, criterion: nn.M
     with torch.no_grad():
 
         for x, y in dataloader:
-            
-            x= x.to(device)
+            x = x.to(device)
+            y = y.to(device)
 
-            y_self, y_leader = y
-            y_self = y_self.to(device)
-            y_leader = y_leader.to(device)
+            y_self = y["self_move"]
+            y_leader = y["leader_move"]
 
 
             pred_self = simulator.predict(x, y_self, y_leader, pred_func, mask)
             
-            loss = criterion(pred_self, y_self)
+            loss = criterion(pred_self, y_self, dt)
 
             running_loss += loss.item()
 
@@ -67,16 +66,17 @@ def _fitness_function(params, idm_model: IDM, dataloader: data.DataLoader, confi
     """
     device = config["device"]
     loss_func = config["loss"]
-    dt = config["downsample"]
+    dt = config["resolution"]
     scaler = config["scaler"]
-    start_step = int(config["start_step"] / dt)
+    start_step = config["start_step"]
     update_func = config["update_func"]
-    pred_horizon = int(config["pred_horizon"] / dt)
-    historic_step = int(config["historic_step"] / dt)
+    pred_horizon = config["pred_horizon"]
+    historic_step = config["historic_step"]
 
     model = idm_model(params, use_torch=True).to(device)
     simulator = Agent(model, dt, pred_horizon, historic_step, scaler, start_timestep=start_step)
     simulator._update_train_series = update_func(simulator)
+    simulator._concat = config["concat"]
 
     fitness = evaluate_recursive(model, dataloader, loss_func, simulator, config)
 
@@ -116,10 +116,10 @@ def calibrate_idm(idm: nn.Module, id_datapack: Dict[int, SampleDataPack], config
     results = []
 
     for idx in tqdm(sample_indices):
-        idm_dataset = IDMDataset(id_datapack[idx][:, :, config["features"]], 
-                                    id_datapack[idx][:, :, [CF.SELF_X, CF.SELF_V, CF.SELF_A]], 
-                                    id_datapack[idx][:, :, [CF.LEAD_X, CF.LEAD_V, CF.LEAD_A]], 
-                                    int(config["downsample"] / config["resolution"]))
+        idm_dataset = IDMDataset(id_datapack[idx][:, :, config["x_groups"]["x"]["features"]], 
+                                    id_datapack[idx][:, :, config["y_groups"]["y"]["features"]], 
+                                    id_datapack[idx][:, :, config["y_groups"]["y"]["features"]], 
+                                    config["downsample"])
         idm_dataloader = DataLoader(idm_dataset, 1, collate_fn=lambda x: x[0])
 
         best_params, best_loss = calibrate_idm_genetic(idm_dataloader, idm, config)

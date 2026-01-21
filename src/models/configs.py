@@ -4,12 +4,12 @@ import time
 from datetime import datetime
 from sklearn.preprocessing import StandardScaler
 import torch
-from src.models.benchmarks import idm_update_train_series
+from src.models.benchmarks import idm_update_train_series, idm_concat
 from src.models.datascalers import DataScaler
 from src.models.dataset import StyledTransfollowerDataset, LSTMDataset
 from src.schema import CFNAMES as CF
 import torch.nn as nn
-from src.models.loss import LossFunctions, StyleLoss
+from src.models.loss import LossFunctions, StyleLoss, IDMLoss
 from src.models.style_cf import StyleTransformer, transformer_mask, style_pred_func 
 best_model_path = f"models/best-model-{datetime.now():%Y%m%d-%H%M%S}.pth"
 
@@ -70,7 +70,7 @@ style_train_config = {
     "device": torch.device("cuda" if torch.cuda.is_available() else "cpu"),
     "best_model_path": best_model_path,
 
-    "loss_func": StyleLoss.acc_spacing_mse,
+    "loss_func": StyleLoss(style_data_config["y_groups"]["y_seq"]["features"]).acc_spacing_mse,
 
     "optim": optim.Adam,
     "lr": 5e-4, # transfollower is 1e-4
@@ -115,17 +115,19 @@ lstm_model_config = {
 
 idm_calibration_config = {
 
-    "features": [CF.SELF_V, CF.LEAD_V, CF.DELTA_X],
-    "downsample": 0.5,
-    "loss": LossFunctions.acc_spacing_mse,
-    "resolution": 0.1,
-    "pred_horizon": 0.5,
-    "historic_step": 0.5,
+    "x_groups": {"x": {"features": [CF.SELF_V, CF.LEAD_V, CF.DELTA_X]}},
+    "y_groups": {"y": {"features": [CF.SELF_X, CF.SELF_V, CF.SELF_A]}},
+    "downsample": 5, # step, sample every 5 step (0.5 second)
+    "loss": IDMLoss().acc_dis_mse,
+    "resolution": 0.1, # second
+    "pred_horizon": 5, # step
+    "historic_step": 5, # step
     "update_func": idm_update_train_series,
-    "start_step": 0.5,
+    "concat": idm_concat,
+    "start_step": 5, # step
     "scaler": DataScaler(),
     "pred_func": lambda model, data, *args: model(data),
-    "mask": lambda x, *args: x["inputs"],
+    "mask": lambda x, *args: x,
     "randomseed": 42,
     "save_path": "./data/idm_calibration",
     "device": "cpu"
@@ -139,4 +141,8 @@ idm_calibration_config = {
 test_config = {
     "datapath": "F:\DATA\ZenTraffic\ZenTraffic90kalman_new.npy",
     "device": "cpu",
+    "idm_state": [24.68, 1.67, 1.37, 1.68, 2.46],
+    "lstm_state_path": ...,
+    "style_state_path": ...,
+    "transformer_state_path": ...,
 }

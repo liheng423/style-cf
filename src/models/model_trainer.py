@@ -100,10 +100,17 @@ def pipeline(d: SampleDataPack, data_config: dict, seed: int) -> tuple[DataLoade
     y_train = [yi[train_idx] for yi in y_data]
     y_test = [yi[test_idx] for yi in y_data]
 
-    scalers = [data_config["scaler"]() for _ in x_train]
+    scalers = {}
+    for key, group in x_groups.items():
+        if not group.get("transform", True):
+            continue
+        scalers[key] = data_config["scaler"]()
 
-    for data_idx in range(len(scalers)):
-        scalers[data_idx] = dataset._fit_scaler(scalers[data_idx], x_train[data_idx])
+    for data_idx, key in enumerate(x_groups.keys()):
+        if key not in scalers:
+            continue
+        scalers[key] = dataset._fit_scaler(scalers[key], x_train[data_idx])
+    
     transform = dataset.make_transform(scalers, x_groups)
 
     dataset_cls = data_config["dataset"]
@@ -137,8 +144,6 @@ def train_stylecf(model_config, train_config, train_loader: DataLoader, test_loa
 
     model = model.to(device)
     
-    style_mask = transformer_mask(model_config)
-    style_pred_func = lambda m, d, *args: m(d)
     
     optim_func = train_config["optim"]
     criterion = train_config["loss_func"]

@@ -7,6 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
 
+from src.models.agent import Agent
 from src.models.utils import SliceableTensorDict, drop_tensor_names
 #
 #class LossFunction:
@@ -323,3 +324,61 @@ def transformer_mask(data_config):
 
 
 style_pred_func = lambda model, data, *args: model(data) 
+
+# TODO: change scalers into dict, label enc_x features with names instead of plain numbers
+def style_update_func(simulator: Agent): 
+
+    def _update_train_series(train_series: SliceableTensorDict, self_movements: torch.Tensor, leader_movements: torch.Tensor):
+        """
+
+        Style is not updated, since each style token is determined before testing.
+
+        Args:
+            train_series: SliceableTensorDict 
+            self_movements : torch.Tensor  (time, [x_self, v_self, a_self])
+            leader_movements : torch.Tensor (time, [x_self, v_self, a_self])
+        """
+
+        # assert self_movements.shape[0] == simulator.pred_horizon and self_movements.shape[1] == 3
+        
+        # Inverse transform inputs
+        enc_series = train_series["enc_x"]
+        dec_series = train_series["dec_x"]
+        style = train_series["style"] if "style" in train_series.keys() else None
+        enc_names = enc_series.names
+        dec_names = dec_series.names
+        style_names = style.names if style is not None else None
+
+        enc_series = simulator.scalers["enc_x"].inverse_transform(enc_series)
+        dec_series = simulator.scalers["dec_x"].inverse_transform(dec_series)
+
+        delta_x = leader_movements[:, 0] - self_movements[:, 0]
+        delta_v = leader_movements[:, 1] - self_movements[:, 1]
+
+        # Update encoder series: [v_self, delta_x, delta_v]
+        enc_series[:, 0] = self_movements[:, 1]
+        enc_series[:, 1] = delta_x
+        enc_series[:, 2] = delta_v
+
+        # Update decoder series: [v_self, v_leader]
+        dec_series[:, 0] = self_movements[:, 1]
+        dec_series[:, 1] = leader_movements[:, 1]
+        
+
+        # Repack and rescale
+        enc_series_scaled = torch.tensor(simulator.scaler[0].transform(enc_series)).float()
+        dec_series_scaled = torch.tensor(simulator.scaler[1].transform(dec_series)).float()
+        if enc_names is not None:
+            enc_series_scaled = enc_series_scaled.refine_names(*enc_names)
+        if dec_names is not None:
+            dec_series_scaled = dec_series_scaled.refine_names(*dec_names)
+        if style is not None and style_names is not None and style.names is None:
+            style = style.refine_names(*style_names)
+        # style = torch.tensor(simulator.scaler[2].transform(style)).float()
+
+        out = {"enc_x": enc_series_scaled, "dec_x": dec_series_scaled}
+        if style is not None:
+            out["style"] = style
+        return SliceableTensorDict(out, batch_size=train_series.batch_size, names=train_series.names)
+    
+    return _update_train_series

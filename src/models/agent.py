@@ -8,6 +8,7 @@ from tensordict import TensorDict
 from torch import Tensor
 from torch.nn import Module
 
+from models.datascalers import DataScaler
 from src.models.kine_utils import _predict_kinematics
 from src.models.utils import SliceableTensorDict
 from src.stylecf.schema import TensorNames
@@ -22,8 +23,7 @@ class Agent:
         dt: float,
         horizon_len: int,
         historic_step: int,
-        scaler: Optional[StandardScaler],
-        pred_speed: bool = False,
+        scalers: dict[str, DataScaler],
         start_timestep: int = 0,
     ) -> None:
         """
@@ -42,7 +42,7 @@ class Agent:
         self.cf_model = cf_model
         self.horizon_len: int = horizon_len # prediction window length of the model
         self.historic_step: int = historic_step # 
-        self.scaler = scaler
+        self.scalers = scalers
         self.rollout_step: int = horizon_len # actual rollout step 
         self.start_step: int = start_timestep
 
@@ -76,7 +76,7 @@ class Agent:
         Implement how to stack items in the list along time dimension.
         tensor_list: List[torch.Tensor], each tensor in the shape of (time, [distance, velocity, acceleration])
         """
-        return NotImplementedError("This function must be rewritten to use")
+        raise NotImplementedError("This function must be rewritten to use")
     
 
     def predict(

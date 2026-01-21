@@ -4,6 +4,7 @@ from tensordict import TensorDict
 import numpy as np
 from src.stylecf.schema import TensorNames
 from typing import Optional
+from src.models.utils import SliceableTensorDict
 
 def _fit_scaler(scaler, data: np.ndarray):
     shape = data.shape
@@ -19,11 +20,16 @@ def _transform(scaler, data: np.ndarray):
 
 
 
-def make_transform(scalers_list, x_groups):
+def make_transform(scalers, x_groups):
     scaler_by_key = {}
-    for idx, (key, group) in enumerate(x_groups.items()):
-        if group.get("transform", True):
-            scaler_by_key[key] = scalers_list[idx]
+    if isinstance(scalers, dict):
+        for key, group in x_groups.items():
+            if group.get("transform", True) and key in scalers:
+                scaler_by_key[key] = scalers[key]
+    else:
+        for idx, (key, group) in enumerate(x_groups.items()):
+            if group.get("transform", True):
+                scaler_by_key[key] = scalers[idx]
 
     def _apply_transform(x_payload):
         out = dict(x_payload)
@@ -193,9 +199,9 @@ class IDMDataset(Dataset):
             y_leader (np.ndarray): (N, T, [x, v, a])
             downsample_step (int): Step size for downsampling along the time dimension.
         """
-        self.x = torch.as_tensor(x, dtype=torch.float32)
-        self.y_self = torch.as_tensor(y_self, dtype=torch.float32)
-        self.y_leader = torch.as_tensor(y_leader, dtype=torch.float32)
+        self.x = _to_named_tensor(x, [TensorNames.N, TensorNames.T, TensorNames.F]).float()
+        self.y_self = y_self
+        self.y_leader = y_leader
         self.downsample_step = downsample_step
 
     def __len__(self):
@@ -206,4 +212,6 @@ class IDMDataset(Dataset):
         y_self_t = self.y_self[idx, ::self.downsample_step, :]
         y_leader_t = self.y_leader[idx, ::self.downsample_step, :]
 
-        return x_t, (y_self_t, y_leader_t)
+        x_td = SliceableTensorDict({TensorNames.INPUTS: x_t}, batch_size=[])
+        y_td = SliceableTensorDict({"self_move": y_self_t, "leader_move": y_leader_t}, batch_size=[])
+        return x_td, y_td
