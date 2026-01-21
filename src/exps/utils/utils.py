@@ -5,7 +5,7 @@ import torch
 from tensordict import TensorDict
 from torch.utils.data._utils.collate import default_collate
 import numpy as np
-from src.models.kine_utils import _predict_kinematics_np
+from src.exps.utils.utils_kine import _predict_kinematics_np
 from src.schema import CFNAMES
 from src.stylecf.schema import TensorNames
 ##

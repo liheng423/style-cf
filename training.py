@@ -7,15 +7,15 @@ import unittest
 import numpy as np
 import test
 
-from src.models.model_trainer import build_style_dataset
-from src.models.utils import load_zen_data
-from src.models.configs import style_data_config, style_train_config
+from exps.train.model_trainer import build_style_dataset
+from src.exps.utils.utils import load_zen_data
+from src.exps.configs import style_data_config, style_train_config
 from src.schema import CFNAMES as CF
 from src.stylecf.schema import TensorNames
 
-from src.models.model_trainer import train_stylecf
-from src.models.style_cf import StyleTransformer
-from src.models.configs import *
+from exps.train.model_trainer import train_stylecf
+from exps.models.stylecf import StyleTransformer
+from src.exps.configs import *
 # %% Utils
 
 

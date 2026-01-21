@@ -4,13 +4,14 @@ import time
 from datetime import datetime
 from sklearn.preprocessing import StandardScaler
 import torch
-from src.models.benchmarks import idm_update_train_series, idm_concat
-from src.models.datascalers import DataScaler
-from src.models.dataset import StyledTransfollowerDataset, LSTMDataset
+from src.exps.utils.utils import stack_name
+from src.exps.models.idm import DEFAULT_MASK, DEFAULT_PRED_FUNC, idm_update_func, idm_update_train_series, idm_concat
+from src.exps.datahandle.datascalers import DataScaler
+from src.exps.datahandle.dataset import StyledTransfollowerDataset, LSTMDataset
 from src.schema import CFNAMES as CF
 import torch.nn as nn
-from src.models.loss import LossFunctions, StyleLoss, IDMLoss
-from src.models.style_cf import StyleTransformer, transformer_mask, style_pred_func 
+from src.exps.loss import LossFunctions, StyleLoss, IDMLoss
+from exps.models.stylecf import StyleTransformer, style_update_func, stylecf_mask, transformer_mask, style_pred_func 
 best_model_path = f"models/best-model-{datetime.now():%Y%m%d-%H%M%S}.pth"
 
 
@@ -51,7 +52,7 @@ style_data_config = {
     "scaler": StandardScaler,
     "dataset": StyledTransfollowerDataset,
     "model_name": StyleTransformer,
-    
+        
     "x_groups": {
         "enc_x": {"features": [CF.SELF_V, CF.DELTA_X, CF.DELTA_V, CF.SELF_L, CF.LEAD_L], "transform": True},
         "dec_x": {"features": [CF.SELF_V, CF.LEAD_V], "transform": True},
@@ -69,18 +70,12 @@ style_train_config = {
     "dt": 0.1,
     "device": torch.device("cuda" if torch.cuda.is_available() else "cpu"),
     "best_model_path": best_model_path,
-
     "loss_func": StyleLoss(style_data_config["y_groups"]["y_seq"]["features"]).acc_spacing_mse,
-
     "optim": optim.Adam,
     "lr": 5e-4, # transfollower is 1e-4
-
-    ### recursive ###
-    "pred_func": style_pred_func,
-    "mask": transformer_mask,
     "logger": {
         "mode": "normal"
-    }
+    },
 }
 
 
@@ -126,8 +121,8 @@ idm_calibration_config = {
     "concat": idm_concat,
     "start_step": 5, # step
     "scaler": DataScaler(),
-    "pred_func": lambda model, data, *args: model(data),
-    "mask": lambda x, *args: x,
+    "pred_func": DEFAULT_PRED_FUNC,
+    "mask": DEFAULT_MASK,
     "randomseed": 42,
     "save_path": "./data/idm_calibration",
     "device": "cpu"
@@ -145,4 +140,41 @@ test_config = {
     "lstm_state_path": ...,
     "style_state_path": ...,
     "transformer_state_path": ...,
+
+    # style agent
+    "style_agent":  
+    { 
+        "pred_func": DEFAULT_PRED_FUNC,
+        "update_func": style_update_func,
+        "mask": stylecf_mask,
+        "concat_func": stack_name
+    },
+
+
+    # lstm agent
+    "lstm_agent":  
+    { 
+        "pred_func": style_pred_func,
+        "update_func": style_update_func,
+        "mask": transformer_mask,
+        "concat_func": stack_name
+    },
+
+    # transformer agent
+    "transformer_agent":  
+    { 
+        "pred_func": style_pred_func,
+        "update_func": style_update_func,
+        "mask": transformer_mask,
+        "concat_func": stack_name
+    },
+
+    # idm agent 
+    "idm_agent":  
+    { 
+        "pred_func": DEFAULT_PRED_FUNC,
+        "update_func": idm_update_func,
+        "concat_func": idm_concat,
+        "mask": DEFAULT_MASK,
+    },
 }

@@ -1,7 +1,7 @@
 
 import time
 from functools import wraps
-from src.models.configs import style_train_config
+from src.exps.configs import style_train_config
 
 class Logger:
     MODE_SILENT = "silent"

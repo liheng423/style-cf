@@ -51,3 +51,7 @@ class CFNAMES:
     TIME = "TIME"
     REACT = "reaction"
     THW = "timeheadway"
+
+@dataclass(frozon=True)
+class FEATNAMES:
+    INPUTS = "inputs"

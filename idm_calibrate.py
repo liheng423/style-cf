@@ -2,11 +2,11 @@
 # %autoreload 2
 # %% Imports
 
-from src.models.benchmarks import IDM
-from src.models.configs import data_filter_config, filter_names, idm_calibration_config
-from src.models.idm_calibrate import calibrate_idm
-from src.models.model_trainer import build_dataset
-from src.models.utils import build_id_datapack, load_zen_data
+from src.exps.models.idm import IDM
+from src.exps.configs import data_filter_config, filter_names, idm_calibration_config
+from src.exps.idm_calibrate import calibrate_idm
+from exps.train.model_trainer import build_dataset
+from src.exps.utils.utils import build_id_datapack, load_zen_data
 
 
 # %% 

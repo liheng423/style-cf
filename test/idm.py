@@ -1,7 +1,7 @@
-from src.models.utils import SliceableTensorDict
-from src.models.utils import load_zen_data
-from src.models.agent import Agent
-from src.models.benchmarks import IDM, idm_concat, idm_update_train_series
+from src.exps.utils.utils import SliceableTensorDict
+from src.exps.utils.utils import load_zen_data
+from src.exps.agent import Agent
+from src.exps.models.idm import IDM, idm_concat, idm_update_train_series
 import os
 import sys
 import unittest

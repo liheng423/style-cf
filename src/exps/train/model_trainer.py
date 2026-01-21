@@ -7,38 +7,39 @@ import torch
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from tensordict import TensorDict
-from src.models import utils
+from src.exps.datahandle.databuilder import build_dataset
+from src.exps.utils.utils_namebuilder import _build_scaler_dict
+from src.exps.utils import utils
 
-from src.models.filters import CFFilter
-from src.models.style_cf import StyleTransformer, batch_apply, reaction_time, time_headway, transformer_mask
-from src.models.utils import SampleDataPack
-from src.models import dataset
+from src.exps.datahandle.filters import CFFilter
+from exps.models.stylecf import StyleTransformer, batch_apply, reaction_time, time_headway, transformer_mask
+from src.exps.utils.utils import SampleDataPack
+from src.exps.datahandle import dataset
 from src.schema import CFNAMES as CF
-from src.models.configs import style_train_config
+from src.exps.configs import style_train_config
 from src.utils.logger import logger
+from tslearn.metrics import dtw_path
 
 
 ### Machine Learning Model ###
 
-def build_dataset(d: SampleDataPack, d_filters: List, d_filter_config: dict) -> SampleDataPack:
+
+def build_loader(
+    d: SampleDataPack,
+    d_filters: List[CFFilter],
+    d_filter_config: dict,
+    data_config: dict | None = None,
+    seed: int = 42,
+) -> tuple[SampleDataPack, DataLoader, DataLoader, list]:
     """
     Build the dataset for car-following model training.
     """
-    d = d.normalize_kilopost()  # normalize KILO to rising
-    d.append_col(d[:, :, CF.LEAD_V] - d[:, :, CF.SELF_V], CF.DELTA_V)
-    d.append_col(d[:, :, CF.LEAD_X] - d[:, :, CF.SELF_X], CF.DELTA_X)
-    d_filter = CFFilter(d, d_filter_config)
-    if d_filters and isinstance(d_filters[0], str):
-        d_filters = [getattr(d_filter, name) for name in d_filters]
-    d = d_filter.filter(d_filters)
+    d = build_dataset(d, d_filters, d_filter_config)
 
-    d.force_consistent()
+    train_loader, test_loader, scalers = pipeline(d, data_config, seed)
+    return d, train_loader, test_loader, scalers
 
-    
-
-    return d
-
-def build_style_dataset(
+def build_style_loader(
     d: SampleDataPack,
     d_filters: List[CFFilter],
     d_filter_config: dict,
@@ -94,25 +95,20 @@ def pipeline(d: SampleDataPack, data_config: dict, seed: int) -> tuple[DataLoade
         test_size=1 - data_config["train_data_ratio"],
         random_state=seed,
     )
-
     x_train = [xi[train_idx] for xi in x_data]
     x_test = [xi[test_idx] for xi in x_data]
     y_train = [yi[train_idx] for yi in y_data]
     y_test = [yi[test_idx] for yi in y_data]
 
-    scalers = {}
-    for key, group in x_groups.items():
-        if not group.get("transform", True):
-            continue
-        scalers[key] = data_config["scaler"]()
-
-    for data_idx, key in enumerate(x_groups.keys()):
-        if key not in scalers:
-            continue
+    # build scaler dict ...
+    scalers = _build_scaler_dict(x_groups, data_config)
+   
+    for data_idx, key in enumerate(scalers.keys()):
         scalers[key] = dataset._fit_scaler(scalers[key], x_train[data_idx])
     
     transform = dataset.make_transform(scalers, x_groups)
 
+    # build dataset for torch ...
     dataset_cls = data_config["dataset"]
     train_dataset = dataset_cls(*x_train, *y_train, data_config=data_config, transform=transform)
     test_dataset = dataset_cls(*x_test, *y_test, data_config=data_config, transform=transform)

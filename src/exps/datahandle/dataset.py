@@ -4,7 +4,7 @@ from tensordict import TensorDict
 import numpy as np
 from src.stylecf.schema import TensorNames
 from typing import Optional
-from src.models.utils import SliceableTensorDict
+from src.exps.utils.utils import SliceableTensorDict
 
 def _fit_scaler(scaler, data: np.ndarray):
     shape = data.shape

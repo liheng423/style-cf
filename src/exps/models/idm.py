@@ -4,9 +4,16 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from src.models.utils import SliceableTensorDict, stack_name
+from src.exps.utils.utils import SliceableTensorDict, stack_name
+from src.schema import CFNAMES as CF
 from src.stylecf.schema import TensorNames
 
+
+
+# default settings #
+
+DEFAULT_PRED_FUNC = lambda model, data, *args: model(data)
+DEFAULT_MASK = lambda x, *args: x
 
 # ========== IDM Model ========== #
 class IDM(nn.Module):
@@ -53,7 +60,7 @@ class IDM(nn.Module):
         return self.predict(v_this, v_front, s_this)
         
 @staticmethod
-def idm_update_train_series(simulator):
+def idm_update_func(simulator):
 
     def _update_train_series(train_series: TensorDict, self_movements: torch.Tensor, leader_movements: torch.Tensor):
         """
@@ -87,12 +94,3 @@ def idm_concat(tensor_list: List[SliceableTensorDict]):
 
 
 # ========== End of IDM Model ========== #
-
-# ========== LSTM Model ========== #
-
-
-def lstm_concat(tensor_list: List[TensorDict]):
-    """
-        tensor_list: List[TensorDict], no style token, thus reduce to normal concat.
-    """
-    return torch.concat(tensor_list, dim=0)

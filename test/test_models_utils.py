@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 import unittest
 import torch
 from tensordict.tensordict import TensorDict
-from src.models.utils import stack_dim, stack_name
+from src.exps.utils.utils import stack_dim, stack_name
 
 
 

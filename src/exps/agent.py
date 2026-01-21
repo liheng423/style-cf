@@ -8,9 +8,9 @@ from tensordict import TensorDict
 from torch import Tensor
 from torch.nn import Module
 
-from models.datascalers import DataScaler
-from src.models.kine_utils import _predict_kinematics
-from src.models.utils import SliceableTensorDict
+from src.exps.datahandle.datascalers import DataScaler
+from src.exps.utils.utils_kine import _predict_kinematics
+from src.exps.utils.utils import SliceableTensorDict
 from src.stylecf.schema import TensorNames
 
 

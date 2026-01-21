@@ -1,14 +1,17 @@
+from typing import List
 from tensordict import TensorDict
 from traitlets import Any
-from tslearn.metrics import dtw_path
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from src.models.agent import Agent
-from src.models.utils import SliceableTensorDict, drop_tensor_names
+from exps.models.transfollower import transformer_update_func, transformer_mask
+from src.exps.agent import Agent
+from src.exps.utils.utils import SliceableTensorDict, drop_tensor_names
+from src.schema import CFNAMES as CF
+
 #
 #class LossFunction:
 #
@@ -199,134 +202,29 @@ class StyleTransformer(nn.Module):
         accs = self.transfollower((enc_inp, dec_inp, d_style))
         return accs, d_style
 
-
-def reaction_time(leader_v: np.ndarray, self_v: np.ndarray, time: np.ndarray):
-    """
-    Estimate the average reaction time of a follower vehicle relative to a leader vehicle
-    based on the DTW alignment of their speed profiles. Also calculates the average delay
-    for each time point.
-
-    Parameters:
-    - leader_v: ndarray of leader vehicle speeds (length T)
-    - self_v: ndarray of follower vehicle speeds (length T)
-    - time: ndarray of timestamps (length T)
-
-    Returns:
-    - avg_reaction_time: scalar, average reaction delay over all time points
-    - avg_delay_per_timepoint: ndarray (length T), average delay at each time point
-    - dtw_path: list of tuples, DTW matching path [(follower_idx, leader_idx), ...]
-    """
-
-    path, _ = dtw_path(self_v, leader_v)
-    T = len(time)
-    delay_dict = {t: [] for t in range(T)}
-
-    for follower_idx, leader_idx in path:
-        if 0 <= follower_idx < T and 0 <= leader_idx < T:
-            delay = time[follower_idx] - time[leader_idx]
-            delay = np.minimum(np.maximum(0.5, delay), 4)
-            delay_dict[follower_idx].append(delay)
-
-    avg_delay_per_timepoint = np.zeros(T)
-    for t in range(T):
-        if delay_dict[t]:
-            avg_delay_per_timepoint[t] = np.mean(delay_dict[t])
-        else:
-            avg_delay_per_timepoint[t] = np.nan 
-
-
-    return avg_delay_per_timepoint
-
-
-def time_headway(spacing: np.ndarray, self_v: np.ndarray):
-    """
-    Compute Time Headway (THW) as spacing divided by ego vehicle speed.
-
-    A small constant (1e-1) is added to the denominator to avoid division by zero.
-
-    Parameters:
-    - spacing: ndarray, distance between the leader and the ego vehicle (in meters)
-    - self_v: ndarray, speed of the ego vehicle (in meters/second)
-
-    Returns:
-    - thw: ndarray, time headway values (in seconds)
-    """
-    thw = spacing / (self_v + 1e-1)
-
-    return thw
- 
-
-def batch_apply(
-    func,
-    args_list
-) -> np.ndarray:
-    """
-    Apply a single-sample function to batched inputs and return a stacked numpy array.
-
-    Parameters:
-    - func: a function that accepts N arguments (e.g., reaction_time or time_headway)
-    - args_list: list of arrays, each with shape (N, ...)
-
-    Returns:
-    - results: np.ndarray with shape (N, ...) depending on func's output shape
-    """
-    num_samples = args_list[0].shape[0]
-    results = [func(*(arg[i] for arg in args_list)) for i in tqdm(range(num_samples))]
-    return np.stack(results) 
-
 ######## MASK ##########
-def transformer_mask(data_config):
+def stylecf_mask(data_config):
     """
     Construct a masked decoder input by combining past (from seq_data) and future (from pred_data),
     and masking the future portion to avoid leakage.
     """
+    base_mask = transformer_mask(data_config)
+
     def _mask(seq_data: SliceableTensorDict, pred_data: SliceableTensorDict, *_: Any) -> SliceableTensorDict:
-        label_len = data_config["label_len"]
-        pred_len = data_config["pred_len"]
-
-        # encoder input stays the same
-        enc_seq_series = seq_data["enc_x"]
-        dec_seq_series = seq_data["dec_x"]
-        style_seq_series = seq_data["style"] if "style" in seq_data.keys() else None
-
-        dec_pred_series = pred_data["dec_x"]
-
-        # take last `label_len` rows from seq_data's decoder input
-        dec_past = dec_seq_series[-label_len:].clone()  # shape: (label_len, dim)
-
-        dec_future = dec_past.new_zeros((pred_len, dec_past.shape[-1]))
-        if dec_past.names is not None:
-            dec_future = dec_future.refine_names(*dec_past.names)
-
-        # take pred_len rows from pred_data's decoder input
-        leader_v_pred = dec_pred_series[:, 1].clone()  # shape: (pred_len, dim)
-
-        # compute the mean of feature 0 in the past (label_len) decoder steps
-        mean_val = torch.mean(dec_past[:, 0])
-
-        # mask feature 0 in future decoder input
-        dec_future[:, 0] = mean_val
-        dec_future[:, 1] = leader_v_pred
-
-        
-
-        # concatenate past and masked future
-        dec_series_masked = torch.cat([dec_past, dec_future], dim=0)  # shape: (label_len + pred_len, dim)
-
-
-        out = {"enc_x": enc_seq_series, "dec_x": dec_series_masked}
-        if style_seq_series is not None:
-            out["style"] = style_seq_series
-
-        return SliceableTensorDict(out, batch_size=seq_data.batch_size, names=seq_data.names)
+        out = base_mask(seq_data, pred_data)
+        style = seq_data["style"]
+        assert not torch.isnan(style).any()
+        out["style"] = style
+        return out
     
     return _mask
 
 
-style_pred_func = lambda model, data, *args: model(data) 
 
-# TODO: change scalers into dict, label enc_x features with names instead of plain numbers
-def style_update_func(simulator: Agent): 
+
+
+def style_update_func(simulator: Agent, featuer_dict: dict[str, List[str]]): 
+    update_transformer = transformer_update_func(simulator, featuer_dict)
 
     def _update_train_series(train_series: SliceableTensorDict, self_movements: torch.Tensor, leader_movements: torch.Tensor):
         """
@@ -339,46 +237,11 @@ def style_update_func(simulator: Agent):
             leader_movements : torch.Tensor (time, [x_self, v_self, a_self])
         """
 
-        # assert self_movements.shape[0] == simulator.pred_horizon and self_movements.shape[1] == 3
-        
-        # Inverse transform inputs
-        enc_series = train_series["enc_x"]
-        dec_series = train_series["dec_x"]
-        style = train_series["style"] if "style" in train_series.keys() else None
-        enc_names = enc_series.names
-        dec_names = dec_series.names
-        style_names = style.names if style is not None else None
-
-        enc_series = simulator.scalers["enc_x"].inverse_transform(enc_series)
-        dec_series = simulator.scalers["dec_x"].inverse_transform(dec_series)
-
-        delta_x = leader_movements[:, 0] - self_movements[:, 0]
-        delta_v = leader_movements[:, 1] - self_movements[:, 1]
-
-        # Update encoder series: [v_self, delta_x, delta_v]
-        enc_series[:, 0] = self_movements[:, 1]
-        enc_series[:, 1] = delta_x
-        enc_series[:, 2] = delta_v
-
-        # Update decoder series: [v_self, v_leader]
-        dec_series[:, 0] = self_movements[:, 1]
-        dec_series[:, 1] = leader_movements[:, 1]
-        
-
-        # Repack and rescale
-        enc_series_scaled = torch.tensor(simulator.scaler[0].transform(enc_series)).float()
-        dec_series_scaled = torch.tensor(simulator.scaler[1].transform(dec_series)).float()
-        if enc_names is not None:
-            enc_series_scaled = enc_series_scaled.refine_names(*enc_names)
-        if dec_names is not None:
-            dec_series_scaled = dec_series_scaled.refine_names(*dec_names)
-        if style is not None and style_names is not None and style.names is None:
-            style = style.refine_names(*style_names)
-        # style = torch.tensor(simulator.scaler[2].transform(style)).float()
-
-        out = {"enc_x": enc_series_scaled, "dec_x": dec_series_scaled}
-        if style is not None:
-            out["style"] = style
-        return SliceableTensorDict(out, batch_size=train_series.batch_size, names=train_series.names)
+        out = update_transformer(train_series, self_movements, leader_movements)
+        if "style" in train_series.keys():
+            style = train_series["style"]
+            if style is not None:
+                out["style"] = style
+        return out
     
     return _update_train_series
