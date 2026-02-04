@@ -1,12 +1,12 @@
-from typing import Callable, Dict, List
+from typing import Any, Callable, Dict, List, Iterable, Self, cast, overload
 import os
 from datetime import datetime
 import torch
-from tensordict import TensorDict
+from tensordict import TensorDict, TensorDictBase
 from torch.utils.data._utils.collate import default_collate
 import numpy as np
 from src.exps.utils.utils_kine import _predict_kinematics_np
-from src.schema import CFNAMES
+from src.schema import CFNAMES as CF
 from src.stylecf.schema import TensorNames
 ##
 # batch = TensorDict({
@@ -56,6 +56,10 @@ def _collate(batch):
         return _stack_tensordict(list(xs)), _stack_tensordict(list(ys))
     return default_collate(batch)
 
+def td_cat(tensordicts: list[TensorDict]) -> TensorDict:
+    td = cast(list, tensordicts)
+    return cast(TensorDict, torch.cat(td, dim=0))
+    
 def stack_name(tensordict_list: list[TensorDict], dim_name: str):
     """
     Stacks a TensorDict along the specified dimension name.
@@ -77,11 +81,15 @@ def stack_name(tensordict_list: list[TensorDict], dim_name: str):
         return TensorDict({}, batch_size=[])
     
     # Check if dim_name is present in at least one tensor's names within the first TensorDict
-    assert any(dim_name in tensordict_list[0][key].names for key in tensordict_list[0].keys()), \
+    keys = list(cast(Iterable[str], tensordict_list[0].keys()))
+    assert any(
+        tensordict_list[0][key].names is not None and dim_name in tensordict_list[0][key].names
+        for key in keys
+    ), \
         f"Dimension name '{dim_name}' not found in the names of any tensor in the first TensorDict."
     
     # Get all keys from the first TensorDict
-    keys = tensordict_list[0].keys()
+    keys = cast(Iterable[str], keys)
     stacked_data = {}
 
     for key in keys:
@@ -100,16 +108,35 @@ def stack_name(tensordict_list: list[TensorDict], dim_name: str):
 
     # If the dim_name is one of the batch dimensions, update batch_size
     new_batch_size = list(tensordict_list[0].batch_size)
-    if dim_name in tensordict_list[0].names:
-        dim_idx = tensordict_list[0].names.index(dim_name)
+    names = cast(List[str], tensordict_list[0].names)
+    if dim_name in names:
+        dim_idx = names.index(dim_name)
         new_batch_size[dim_idx] *= len(tensordict_list)
 
-    return first_type(stacked_data, batch_size=new_batch_size, names=tensordict_list[0].names)
+    return first_type(stacked_data, batch_size=new_batch_size, names=names)
 
 
 class SliceableTensorDict(TensorDict):
-    def __init__(self, source=None, batch_size=None, names=None):
+    def __init__(self, source, batch_size, names):
         super().__init__(source=source, batch_size=batch_size, names=names)
+    
+    def __new__(cls, *args, **kwargs) -> Self:
+        return cast(Self,super().__new__(cls))
+
+
+    def get(self, key) -> Any:
+        result = super().__getitem__(cast(Any, key))
+        if (
+            isinstance(key, list)
+            and all(isinstance(k, str) for k in key)
+            and isinstance(result, TensorDictBase)
+        ):
+            return SliceableTensorDict(
+                result,
+                batch_size=result.batch_size,
+                names=result.names,
+            )
+        return result
 
     def sel(self, item=None, **indexers) -> 'SliceableTensorDict':
         """
@@ -138,7 +165,10 @@ class SliceableTensorDict(TensorDict):
         elif isinstance(item, dict):
             selectors = item
         else:
-            return super().__getitem__(item)
+            raise TypeError(
+                "sel() only accepts named-dimension selectors; "
+                "use get() or another method for key-based indexing."
+            )
 
         if not selectors:
             return self
@@ -181,7 +211,8 @@ class SliceableTensorDict(TensorDict):
     
     def to(self, device):
         new_data = {k: v.to(device) for k, v in self.items()}
-        return SliceableTensorDict(new_data, batch_size=self.batch_size, names=self.names)
+        new_td = SliceableTensorDict(new_data, batch_size=self.batch_size, names=self.names)
+        return cast("SliceableTensorDict", new_td)
     
 
 
@@ -252,7 +283,7 @@ class SampleDataPack:
         """
         return SampleDataPack(self.data[:n], self.names.copy(), self.rise, self.kph, self.kilo_norm, self.dt)
 
-    def __getitem__(self, key) -> 'SampleDataPack':
+    def __getitem__(self, key) -> np.ndarray:
         """
         Supports:
         - [i, j, "feature_name"]
@@ -289,14 +320,14 @@ class SampleDataPack:
         if set(new_name_dict.keys()) != set(self.names.keys()):
             raise ValueError("New name_dict must contain the same keys as the original.")
 
-        new_order = [self.names[name] for name in sorted(new_name_dict, key=new_name_dict.get)]
+        new_order = [self.names[name] for name in sorted(new_name_dict, key=lambda x: new_name_dict[x])]
         
         self.data = self.data[:, :, new_order]
 
         self.names = new_name_dict
 
 
-    def normalize_kilopost(self, column_keys: List[str] = None) -> 'SampleDataPack':
+    def normalize_kilopost(self, column_keys: List[str]= [CF.LEAD_X, CF.SELF_X]) -> 'SampleDataPack':
         """
         Normalize selected columns (e.g., 'LEAD_X', 'SELF_X') across all samples.
         
@@ -311,9 +342,6 @@ class SampleDataPack:
             print("The kilopost is already normalized, nothing is done")
             return self
 
-        # Default columns to normalize
-        if column_keys is None:
-            column_keys = [LEAD_X, SELF_X]
 
         # Get indices of the columns to normalize
         column_indices = []
@@ -338,7 +366,7 @@ class SampleDataPack:
         for i, idx in enumerate(column_indices):
             new_data[:, :, idx] = normalized[:, i, :]
 
-        return SampleDataPack(new_data, self.names.copy(), kilo_norm=True, kph=self.kph, rise=True)
+        return SampleDataPack(new_data, self.names.copy(), kilo_norm=True, kph=self.kph, rise=True, dt=self.dt)
 
     def split_by_time_windows(self, windows: list[tuple[int, int]]) -> 'SampleDataPack':
         """
@@ -363,7 +391,7 @@ class SampleDataPack:
             axis=0
         )  # Result shape: (samples * len(windows), time_window, features)
 
-        return SampleDataPack(split_data, self.names.copy(), self.rise, self.kph, self.kilo_norm)
+        return SampleDataPack(split_data, self.names.copy(), self.rise, self.kph, self.kilo_norm, dt=self.dt)
 
     def convert_speed_to_ms(self, cols: list[str]) -> 'SampleDataPack':
         """
@@ -391,7 +419,7 @@ class SampleDataPack:
             idx = self.names[col]
             new_data[:, :, idx] = kph2ms(new_data[:, :, idx])
 
-        return SampleDataPack(new_data, self.names.copy(), self.rise, False, self.kilo_norm)
+        return SampleDataPack(new_data, self.names.copy(), self.rise, False, self.kilo_norm, self.dt)
     
               
     def check_consistency(self, start_idx: int = 1):
@@ -400,7 +428,7 @@ class SampleDataPack:
 
         Args:
             start_idx (int): Start index in the time axis for comparison (skip unstable initial frames).
-            dt (float): Time interval between steps in seconds.
+           dt (float): Time interval between steps in seconds.
 
         Returns:
             Tuple of:
@@ -410,9 +438,9 @@ class SampleDataPack:
         assert self.kph == False
 
         # Extract tensors
-        accs = self[:, :, CFNAMES.SELF_A][:, start_idx:]  # (N, T')
-        x = self[:, :, CFNAMES.SELF_X]  # (N, T)
-        v = self[:, :, CFNAMES.SELF_V]  # (N, T)
+        accs = self[:, :, CF.SELF_A][:, start_idx:]  # (N, T')
+        x = self[:, :, CF.SELF_X]  # (N, T)
+        v = self[:, :, CF.SELF_V]  # (N, T)
 
         # Build ground truth: shape (N, T, 2) with (x, v, a)
         initial_states = np.stack([x, v], axis=2)  # (N, T, 2)
@@ -428,25 +456,25 @@ class SampleDataPack:
         return pos_error, spd_error
     
     def force_consistent(self):
-        self.replace_col(np.gradient(self[:, :, CFNAMES.SELF_X], self.dt, axis=1), CFNAMES.SELF_V)
-        self.replace_col(np.gradient(self[:, :, CFNAMES.SELF_V], self.dt, axis=1), CFNAMES.SELF_A)
-        self.replace_col(np.gradient(self[:, :, CFNAMES.LEAD_X], self.dt, axis=1), CFNAMES.LEAD_V)
-        self.replace_col(np.gradient(self[:, :, CFNAMES.LEAD_V], self.dt, axis=1), CFNAMES.LEAD_A)
-        self.replace_col(self[:, :, CFNAMES.LEAD_V] - self[:, :, CFNAMES.SELF_V], CFNAMES.DELTA_V)
-        self.replace_col(self[:, :, CFNAMES.LEAD_X] - self[:, :, CFNAMES.SELF_X], CFNAMES.DELTA_X)
+        self.replace_col(np.gradient(self[:, :, CF.SELF_X], self.dt, axis=1), CF.SELF_V)
+        self.replace_col(np.gradient(self[:, :, CF.SELF_V], self.dt, axis=1), CF.SELF_A)
+        self.replace_col(np.gradient(self[:, :, CF.LEAD_X], self.dt, axis=1), CF.LEAD_V)
+        self.replace_col(np.gradient(self[:, :, CF.LEAD_V], self.dt, axis=1), CF.LEAD_A)
+        self.replace_col(self[:, :, CF.LEAD_V] - self[:, :, CF.SELF_V], CF.DELTA_V)
+        self.replace_col(self[:, :, CF.LEAD_X] - self[:, :, CF.SELF_X], CF.DELTA_X)
 
 def load_zen_data(path, rise, in_kph=False, kilo_norm=False):
     names = {
-        CFNAMES.SELF_ID: 0,
-        CFNAMES.SELF_X: 1,
-        CFNAMES.SELF_V: 2,
-        CFNAMES.SELF_A: 3,
-        CFNAMES.SELF_L: 4,
-        CFNAMES.LEAD_ID: 5,
-        CFNAMES.LEAD_X: 6,
-        CFNAMES.LEAD_V: 7,
-        CFNAMES.LEAD_A: 8,
-        CFNAMES.LEAD_L: 9
+        CF.SELF_ID: 0,
+        CF.SELF_X: 1,
+        CF.SELF_V: 2,
+        CF.SELF_A: 3,
+        CF.SELF_L: 4,
+        CF.LEAD_ID: 5,
+        CF.LEAD_X: 6,
+        CF.LEAD_V: 7,
+        CF.LEAD_A: 8,
+        CF.LEAD_L: 9
     }
 
     data: np.ndarray = np.load(path, allow_pickle=True).astype(np.float32)
@@ -472,10 +500,10 @@ def build_id_datapack(
         key_by_id: If True, use the vehicle ID as dict key; otherwise use
             0..N-1 indices for compatibility with calibrate_idm.
     """
-    if CFNAMES.SELF_ID not in datapack.names:
-        raise KeyError(f"{CFNAMES.SELF_ID} not found in datapack.names")
+    if CF.SELF_ID not in datapack.names:
+        raise KeyError(f"{CF.SELF_ID} not found in datapack.names")
 
-    id_idx = datapack.names[CFNAMES.SELF_ID]
+    id_idx = datapack.names[CF.SELF_ID]
     ids = datapack.data[:, :, id_idx]
     first_ids = ids[:, 0]
 
