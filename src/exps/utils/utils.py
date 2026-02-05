@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Iterable, Self, cast, overload
+from typing import Any, Callable, Dict, List, Iterable, Self, Sequence, cast, overload
 import os
 from datetime import datetime
 import torch
@@ -56,11 +56,11 @@ def _collate(batch):
         return _stack_tensordict(list(xs)), _stack_tensordict(list(ys))
     return default_collate(batch)
 
-def td_cat(tensordicts: list[TensorDict]) -> TensorDict:
+def td_cat(tensordicts: list[TensorDict], dim) -> TensorDict:
     td = cast(list, tensordicts)
-    return cast(TensorDict, torch.cat(td, dim=0))
+    return cast(TensorDict, torch.cat(td, dim=dim))
     
-def stack_name(tensordict_list: list[TensorDict], dim_name: str):
+def stack_name(tensordict_list: Sequence[TensorDict], dim_name: str):
     """
     Stacks a TensorDict along the specified dimension name.
     If the dimension is not present in a tensor, it remains unchanged.
@@ -117,7 +117,7 @@ def stack_name(tensordict_list: list[TensorDict], dim_name: str):
 
 
 class SliceableTensorDict(TensorDict):
-    def __init__(self, source, batch_size, names):
+    def __init__(self, source, batch_size=None, names=None):
         super().__init__(source=source, batch_size=batch_size, names=names)
     
     def __new__(cls, *args, **kwargs) -> Self:
@@ -392,6 +392,25 @@ class SampleDataPack:
         )  # Result shape: (samples * len(windows), time_window, features)
 
         return SampleDataPack(split_data, self.names.copy(), self.rise, self.kph, self.kilo_norm, dt=self.dt)
+
+    def split_by_time_windows_list(self, windows: list[tuple[int, int]]) -> list['SampleDataPack']:
+        """
+        Split each sample along the time axis and return a list of DataPacks,
+        one per window.
+
+        Args:
+            windows (list of tuple): Each tuple is a (start, end) window on the time axis.
+
+        Returns:
+            list[DataPack]: List of DataPacks, each containing data from a time window.
+        """
+        packs: list[SampleDataPack] = []
+        for start, end in windows:
+            if not (0 <= start < end <= self.data.shape[1]):
+                raise ValueError(f"Invalid window ({start}, {end})")
+            split_data = self.data[:, start:end, :].copy()
+            packs.append(SampleDataPack(split_data, self.names.copy(), self.rise, self.kph, self.kilo_norm, dt=self.dt))
+        return packs
 
     def convert_speed_to_ms(self, cols: list[str]) -> 'SampleDataPack':
         """

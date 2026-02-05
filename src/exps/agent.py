@@ -1,5 +1,5 @@
 from ast import Not
-from typing import Callable, Optional, List, Any
+from typing import Callable, Optional, List, Any, overload
 
 import numpy as np
 import torch
@@ -49,29 +49,52 @@ class Agent:
 
     def _predict_onestep(
         self,
-        data: Tensor,
+        data: Tensor | TensorDict,
         initial_states: Tensor,
-        pred_func: Callable[[Module, Any, bool], Tensor],
+        pred_func: Callable[[Module, Any, bool], Tensor], # function to predict with the model, outputs the motion matrix [time, (x, v, a)]
         if_last: bool,
     ) -> Tensor:
         pred = pred_func(self.cf_model, data, if_last).rename(None)
         pred_traj = _predict_kinematics(pred, initial_states.rename(None), self.dt)
         return pred_traj
 
+    @overload
     def _update_train_series(
         self,
         train_series: Tensor,
         self_movements: Tensor,
         leader_movements: Tensor,
-    ) -> Tensor:
+    ) -> Tensor: ...
+    
+    @overload
+    def _update_train_series(
+        self,
+        train_series: SliceableTensorDict,
+        self_movements: Tensor,
+        leader_movements: Tensor,
+    ) -> SliceableTensorDict: ...    
+
+    def _update_train_series(
+        self,
+        train_series,
+        self_movements,
+        leader_movements,
+    ):
         """
         Implement how to update the training series with predicted self movements and leader movements.
         """
         raise NotImplementedError("This function must be rewritten to use")
 
+    @overload
+    @staticmethod
+    def _concat(tensor_list: List[Tensor]) -> Tensor: ...
+    
+    @overload
+    @staticmethod
+    def _concat(tensor_list: List[SliceableTensorDict]) -> SliceableTensorDict: ...
     
     @staticmethod
-    def _concat(tensor_list: List[Tensor | TensorDict]):
+    def _concat(tensor_list):
         """
         Implement how to stack items in the list along time dimension.
         tensor_list: List[torch.Tensor], each tensor in the shape of (time, [distance, velocity, acceleration])
@@ -85,7 +108,8 @@ class Agent:
         self_traj_full: Tensor,
         leader_traj_full: Tensor,
         pred_func: Callable[[Module, Any, bool], Tensor] = lambda model, data, *_: model(data),
-        mask: Callable[[SliceableTensorDict, SliceableTensorDict, SliceableTensorDict], Any] = lambda x, *_: x,
+        mask: Callable[[SliceableTensorDict, SliceableTensorDict, SliceableTensorDict], SliceableTensorDict
+                       ] = lambda x, *_: x,
     ) -> Tensor:
         """
         Args:

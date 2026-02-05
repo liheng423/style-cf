@@ -68,8 +68,10 @@ class StyleLoss:
         
 
     def acc_spacing_mse(self, outputs: torch.Tensor, y: TensorDict, dt):
-
-        output_accs, output_style = outputs
+        if isinstance(outputs, tuple):
+            output_accs = outputs[0]
+        else:
+            output_accs = outputs
         y_traj = y.get("y_seq").rename(None)
         acc_loss = LossFunctions.acc_spacing_mse(output_accs, y_traj, dt, self.name_dict[CF.DELTA_X], self.name_dict[CF.LEAD_X])
         return acc_loss

@@ -16,7 +16,7 @@ class Col:
 class HH_Col:
     ID: str = "case_id"
     TIME: str = "time"
-    LANE: str = None
+    LANE: str = "lane"
     SPD: str = "SPD"
     ACC: str = "ACC"
     KILO: str = "KILO"
@@ -51,7 +51,8 @@ class CFNAMES:
     TIME = "TIME"
     REACT = "reaction"
     THW = "timeheadway"
+    LC = "LC"
 
-@dataclass(frozon=True)
+@dataclass(frozen=True)
 class FEATNAMES:
     INPUTS = "inputs"

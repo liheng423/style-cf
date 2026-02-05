@@ -90,8 +90,8 @@ def calibrate_idm_genetic(dataloader, idm_model: IDM, config: dict):
             size_pop=10,  # 种群大小
             max_iter=50,  # 最大迭代次数
             prob_mut=0.2,  # 变异概率
-            lb=[bounds[0][0], bounds[1][0], bounds[2][0], bounds[3][0], bounds[4][0]],  # 参数下界
-            ub=[bounds[0][1], bounds[1][1], bounds[2][1], bounds[3][1], bounds[4][1]],  # 参数上界
+            lb=[bounds[0][0], bounds[1][0], bounds[2][0], bounds[3][0], bounds[4][0]],  # type: ignore
+            ub=[bounds[0][1], bounds[1][1], bounds[2][1], bounds[3][1], bounds[4][1]],  # type: ignore
             precision=1e-2)  # 精度
     
     ga.to(config["device"])
@@ -103,7 +103,7 @@ def calibrate_idm_genetic(dataloader, idm_model: IDM, config: dict):
     return best_params, best_loss
 
 
-def calibrate_idm(idm: nn.Module, id_datapack: Dict[int, SampleDataPack], config):
+def calibrate_idm(idm: IDM, id_datapack: Dict[int, SampleDataPack], config):
     """
         Calibrate the IDM model using genetic algorithm. Note that each ID is seperately calibrated, and the final results take the average of the parameters. 
     
@@ -135,7 +135,7 @@ def calibrate_idm(idm: nn.Module, id_datapack: Dict[int, SampleDataPack], config
         })
 
     df = pd.DataFrame(results)
-    ensure_dir(idm_config["save_path"])
-    df.to_csv(idm_config["save_path"], index=False)
+    ensure_dir(config["save_path"])
+    df.to_csv(config["save_path"], index=False)
 
-    print(f"Results saved to {idm_config['save_path']}")
+    print(f"Results saved to {config['save_path']}")

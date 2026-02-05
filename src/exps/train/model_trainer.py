@@ -12,7 +12,8 @@ from src.exps.utils.utils_namebuilder import _build_scaler_dict
 from src.exps.utils import utils
 
 from src.exps.datahandle.filters import CFFilter
-from exps.models.stylecf import StyleTransformer, batch_apply, reaction_time, time_headway, transformer_mask
+from src.exps.models.stylecf import StyleTransformer
+from src.exps.datahandle.feat_extractor import batch_apply, reaction_time, time_headway
 from src.exps.utils.utils import SampleDataPack
 from src.exps.datahandle import dataset
 from src.schema import CFNAMES as CF
@@ -28,9 +29,9 @@ def build_loader(
     d: SampleDataPack,
     d_filters: List[CFFilter],
     d_filter_config: dict,
-    data_config: dict | None = None,
+    data_config: dict, 
     seed: int = 42,
-) -> tuple[SampleDataPack, DataLoader, DataLoader, list]:
+) -> tuple[SampleDataPack, DataLoader, DataLoader, dict]:
     """
     Build the dataset for car-following model training.
     """
@@ -45,7 +46,7 @@ def build_style_loader(
     d_filter_config: dict,
     data_config: dict | None = None,
     seed: int = 42,
-) -> tuple[SampleDataPack, DataLoader, DataLoader, list]:
+) -> tuple[SampleDataPack, DataLoader, DataLoader, dict]:
     """
     Build the dataset for style-based car-following model training.
     """
@@ -75,12 +76,12 @@ def build_style_loader(
     )
 
     if data_config is None:
-        return d
+        raise ValueError("data_config must be provided for style data loader.")
     train_loader, test_loader, scalers = pipeline(d, data_config, seed)
     return d, train_loader, test_loader, scalers
 
 
-def pipeline(d: SampleDataPack, data_config: dict, seed: int) -> tuple[DataLoader, DataLoader, list]:
+def pipeline(d: SampleDataPack, data_config: dict, seed: int) -> tuple[DataLoader, DataLoader, dict]:
     x_groups = data_config["x_groups"]
     y_groups = data_config["y_groups"]
 
@@ -129,7 +130,6 @@ def pipeline(d: SampleDataPack, data_config: dict, seed: int) -> tuple[DataLoade
     )
     return train_loader, test_loader, scalers
 
-@logger.decorator("train_stylecf")
 def train_stylecf(model_config, train_config, train_loader: DataLoader, test_loader: DataLoader):
     
     
@@ -173,7 +173,6 @@ def train_stylecf(model_config, train_config, train_loader: DataLoader, test_loa
         mode='min',       
         factor=1e-1,      
         patience=5,       
-        verbose=True     
     )
 
 

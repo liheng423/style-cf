@@ -3,11 +3,12 @@
 
 
 import torch
+import torch.nn as nn
 from src.exps.agent import Agent
 from src.exps.utils.utils import SliceableTensorDict
 from src.exps.utils.utils_namebuilder import _build_name_dict
 from src.schema import CFNAMES as CF
-from typing import List
+from typing import List, cast
 
 
 
@@ -60,7 +61,7 @@ def transformer_update_func(simulator: Agent, data_config: dict):
 
 
 
-def transformer_mask(data_config):
+def transformer_mask(data_config: dict):
     """
     Construct a masked decoder input by combining past (from seq_data) and future (from pred_data),
     and masking the future portion to avoid leakage.
@@ -72,9 +73,9 @@ def transformer_mask(data_config):
         pred_len = data_config["pred_len"]
 
         # encoder input stays the same
-        enc_seq_series = seq_data["enc_x"]  # shape: (seq_len, dim)
-        dec_seq_series = seq_data["dec_x"]
-        dec_pred_series = pred_data["dec_x"]
+        enc_seq_series = cast(torch.Tensor, seq_data["enc_x"])  # shape: (seq_len, dim)
+        dec_seq_series = cast(torch.Tensor, seq_data["dec_x"])
+        dec_pred_series = cast(torch.Tensor, pred_data["dec_x"])
 
         # take last label_len rows from seq_data's decoder input
         dec_past = dec_seq_series[-label_len:].clone()  # shape: (label_len, dim)
@@ -105,3 +106,38 @@ def transformer_mask(data_config):
 
 
     return _mask
+
+class Transfollower(nn.Module):
+    def __init__(self, transfollower_config, d_model = 256, num_encoder_layers = 2, num_decoder_layers = 1):
+        super(Transfollower, self).__init__()
+        enc_in, dec_in = transfollower_config["enc_in"], transfollower_config["dec_in"]
+        self.transformer = nn.Transformer(d_model= d_model, nhead=8, num_encoder_layers=num_encoder_layers,
+                                   num_decoder_layers=num_decoder_layers, dim_feedforward=1024, 
+                                   dropout=0, activation='relu', custom_encoder=None,
+                                   custom_decoder=None, layer_norm_eps=1e-05, batch_first=True, 
+                                   device=None, dtype=None)
+        self.enc_emb = nn.Linear(enc_in, d_model)
+        self.dec_emb = nn.Linear(dec_in, d_model)
+        self.out_proj = nn.Linear(d_model, 1, bias = True)
+        self.settings = transfollower_config
+        
+        self.enc_positional_embedding = nn.Embedding(self.settings["seq_len"], d_model)
+        self.dec_positional_embedding = nn.Embedding(self.settings["pred_len"] + self.settings["label_len"], d_model)
+
+        nn.init.normal_(self.enc_emb.weight, 0, .02)
+        nn.init.normal_(self.dec_emb.weight, 0, .02)
+        nn.init.normal_(self.out_proj.weight, 0, .02)
+        nn.init.normal_(self.enc_positional_embedding.weight, 0, .02)
+        nn.init.normal_(self.dec_positional_embedding.weight, 0, .02)
+
+    def forward(self, x: SliceableTensorDict):
+        enc_inp, dec_inp = x["enc_x"], x["dec_x"] # (Batch, time, feature)
+        enc_pos = torch.arange(0, enc_inp.shape[1]).to(enc_inp.device)
+        dec_pos = torch.arange(0, dec_inp.shape[1]).to(dec_inp.device)
+        enc_inp = self.enc_emb(enc_inp) + self.enc_positional_embedding(enc_pos)[None,:,:]
+        dec_inp = self.dec_emb(dec_inp) + self.dec_positional_embedding(dec_pos)[None,:,:]
+        
+        transformer_out = self.transformer(enc_inp, dec_inp) # out: (Batch, time, feature)
+        out = self.out_proj(transformer_out)
+        return out[:,-self.settings["pred_len"]:,:].squeeze(2)
+    

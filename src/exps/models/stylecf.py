@@ -1,6 +1,6 @@
-from typing import List
+from typing import List, cast
 from tensordict import TensorDict
-from traitlets import Any
+from typing import Any
 import numpy as np
 import torch
 import torch.nn as nn
@@ -11,6 +11,23 @@ from exps.models.transfollower import transformer_update_func, transformer_mask
 from src.exps.agent import Agent
 from src.exps.utils.utils import SliceableTensorDict, drop_tensor_names
 from src.schema import CFNAMES as CF
+from typing import Protocol
+
+
+class StyleModel(Protocol):
+    
+    use_dummy_style: bool
+    
+    def forward(self, x: TensorDict) -> tuple[torch.Tensor, torch.Tensor]:
+        ...
+        
+    def to(self, device: torch.device) -> None:
+        ...
+        
+    def load_state_dict(self, state_dict: dict) -> None:
+        ...
+        
+    
 
 #
 #class LossFunction:
@@ -168,7 +185,7 @@ class StyleEmbedder(nn.Module):
 
 
 
-class StyleTransformer(nn.Module):
+class StyleTransformer(nn.Module, StyleModel):
     """
     Transformer model that integrates style embeddings into car-following predictions.
     """
@@ -189,9 +206,9 @@ class StyleTransformer(nn.Module):
         - dec_x: (B, T_dec, dec_in)
         - style: (B, T_style, d_style)
         """
-        enc_inp = drop_tensor_names(x["enc_x"])
-        dec_inp = drop_tensor_names(x["dec_x"])
-        style = drop_tensor_names(x["style"])
+        enc_inp = drop_tensor_names(cast(torch.Tensor, x["enc_x"]))
+        dec_inp = drop_tensor_names(cast(torch.Tensor, x["dec_x"]))
+        style = drop_tensor_names(cast(torch.Tensor, x["style"]))
         B = enc_inp.size(0)
 
         if self.use_dummy_style:
@@ -212,7 +229,7 @@ def stylecf_mask(data_config):
 
     def _mask(seq_data: SliceableTensorDict, pred_data: SliceableTensorDict, *_: Any) -> SliceableTensorDict:
         out = base_mask(seq_data, pred_data)
-        style = seq_data["style"]
+        style = cast(torch.Tensor, seq_data["style"])
         assert not torch.isnan(style).any()
         out["style"] = style
         return out

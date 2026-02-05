@@ -1,4 +1,5 @@
-from typing import List, Mapping
+from typing import Any, List, Mapping, Sequence, TypeVar, cast
+from src.utils.logger import get_with_warn, logger
 
 # `namebuilder` parses the data structure in this shape, and enables to map the name back to index
 
@@ -16,15 +17,16 @@ def _build_name_dict(feature_dict: Mapping[str, object]) -> dict[str, dict[str, 
     name_dict: dict[str, dict[str, int]] = {}
     for group, spec in feature_dict.items():
         if isinstance(spec, dict):
-            features = spec.get("features")
-            if features is None:
-                raise ValueError(f"Missing features for group '{group}'")
+            features = get_with_warn(spec, "features", None)
+            if features is None: raise ValueError(f"Missing features for group '{group}'")
+            features = cast(list, features)
         else:
-            features = spec
+            features = cast(List[str], spec)
+            logger.warning(f"Feature spec for group '{group}' is not a dict, assuming list of features directly.")
         name_dict[group] = {feat: idx for idx, feat in enumerate(features)}
     return name_dict
 
-def _build_scaler_dict(feature: List[str], data_config: dict) -> dict[str, object]:
+def _build_scaler_dict(feature: dict, data_config: dict) -> dict[str, object]:
 
     scalers = {}
     for key, group in feature.items():
@@ -33,3 +35,9 @@ def _build_scaler_dict(feature: List[str], data_config: dict) -> dict[str, objec
         scalers[key] = data_config["scaler"]()
     
     return scalers
+
+def build_name_list(l: list, c: Any) -> list[Any]:
+    names = []
+    for name in l:
+        names.append(c(name))
+    return names

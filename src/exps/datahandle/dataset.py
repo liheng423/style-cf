@@ -3,8 +3,9 @@ from torch.utils.data import Dataset, DataLoader
 from tensordict import TensorDict
 import numpy as np
 from src.stylecf.schema import TensorNames
-from typing import Optional
+from typing import Callable, Optional
 from src.exps.utils.utils import SliceableTensorDict
+from src.utils.logger import get_with_warn
 
 def _fit_scaler(scaler, data: np.ndarray):
     shape = data.shape
@@ -41,9 +42,9 @@ def make_transform(scalers, x_groups):
     return _apply_transform
 
 
-def _to_named_tensor(value, names) -> Optional[torch.Tensor]:
+def _to_named_tensor(value, names) -> torch.Tensor:
     if value is None:
-        return None
+        raise ValueError("Cannot convert None to named tensor")
     tensor = value if isinstance(value, torch.Tensor) else torch.tensor(value)
     if tensor.names is None or any(name is None for name in tensor.names):
         tensor = tensor.refine_names(*names)
@@ -52,13 +53,17 @@ def _to_named_tensor(value, names) -> Optional[torch.Tensor]:
 ###### Transformer Dataset ######
 
 class TransformerDataset(Dataset):
-    def __init__(self, x_seq_enc=None, x_seq_dec=None, x_static=None, y_seq=None, y_static=None, data_config: Optional[dict]=None, transform=None):
+    def __init__(self, x_seq_enc: np.ndarray, x_seq_dec: np.ndarray | None, x_static: np.ndarray | None, 
+                 y_seq: np.ndarray | None, y_static: np.ndarray | None, 
+                 data_config: dict, 
+                 transform: Callable[[dict[str, np.ndarray]], dict[str, np.ndarray]]):
+        
         if transform is not None:
             x_payload = {"enc_x": x_seq_enc, "dec_x": x_seq_dec, "x_static": x_static}
             x_payload = transform(x_payload)
-            x_seq_enc = x_payload.get("enc_x")
-            x_seq_dec = x_payload.get("dec_x")
-            x_static = x_payload.get("x_static")
+            x_seq_enc = get_with_warn(x_payload, "enc_x", x_seq_enc)
+            x_seq_dec = get_with_warn(x_payload, "dec_x", x_seq_dec)
+            x_static = get_with_warn(x_payload, "x_static", x_static)
 
         self.x_seq_enc = _to_named_tensor(x_seq_enc, [TensorNames.N, TensorNames.T, TensorNames.F]).float()
         self.x_seq_dec = _to_named_tensor(x_seq_dec, [TensorNames.N, TensorNames.T, TensorNames.F]).float()
@@ -118,14 +123,14 @@ class TransformerDataset(Dataset):
 ###### StyleCF Transformer Dataset ######
 
 class StyledTransfollowerDataset(TransformerDataset):
-    def __init__(self, x_seq_enc, x_seq_dec, x_style, y_seq, data_config=None, transform=None):
+    def __init__(self, x_seq_enc, x_seq_dec, x_style, y_seq, data_config, transform):
         if transform is not None:
             x_payload = {"enc_x": x_seq_enc, "dec_x": x_seq_dec, "style": x_style}
             x_payload = transform(x_payload)
-            x_seq_enc = x_payload.get("enc_x")
-            x_seq_dec = x_payload.get("dec_x")
-            x_style = x_payload.get("style")
-        super().__init__(x_seq_enc, x_seq_dec, None, y_seq, None, data_config)
+            x_seq_enc = get_with_warn(x_payload, "enc_x", x_seq_enc)
+            x_seq_dec = get_with_warn(x_payload, "dec_x", x_seq_dec)
+            x_style = get_with_warn(x_payload, "style", x_style)
+        super().__init__(x_seq_enc, x_seq_dec, x_style, y_seq, None, data_config, transform=transform)
         self.x_style = _to_named_tensor(x_style, [TensorNames.N, TensorNames.T, TensorNames.F]).float()
 
     def __getitem__(self, idx):

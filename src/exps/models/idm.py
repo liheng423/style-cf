@@ -1,10 +1,10 @@
-from typing import List
+from typing import List, cast
 from tensordict import TensorDict
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from src.exps.utils.utils import SliceableTensorDict, stack_name
+from src.exps.utils.utils import SliceableTensorDict, stack_name, td_cat
 from src.schema import CFNAMES as CF
 from src.stylecf.schema import TensorNames
 
@@ -53,10 +53,10 @@ class IDM(nn.Module):
         Args:
         X (SliceableTensorDict): size ((B), T, [v_self, v_leader, spacing]), training data input.
         """
-        X = X[TensorNames.INPUTS]  # get the underlying tensor
-        v_this = X[... , 0]
-        v_front = X[... , 1]
-        s_this = X[... , 2]
+        x = cast(torch.Tensor, X[TensorNames.INPUTS])  # get the underlying tensor
+        v_this = x[... , 0]
+        v_front = x[... , 1]
+        s_this = x[... , 2]
         return self.predict(v_this, v_front, s_this)
         
 @staticmethod
@@ -72,11 +72,11 @@ def idm_update_func(simulator):
         Returns:
             torch.Tensor: Updated training series.
         """
-        train_series = train_series[TensorNames.INPUTS]
-        train_series[... , 0] = self_movements[... , 1]
-        train_series[... , 2] = leader_movements[... , 0] - self_movements[... , 0]
+        x = cast(torch.Tensor, train_series[TensorNames.INPUTS])
+        x[... , 0] = self_movements[... , 1]
+        x[... , 2] = leader_movements[... , 0] - self_movements[... , 0]
 
-        return SliceableTensorDict({TensorNames.INPUTS: train_series}, batch_size=train_series.shape[0])
+        return SliceableTensorDict({TensorNames.INPUTS: x}, batch_size=x.shape[0], names=train_series.names)
 
     return _update_train_series
 
@@ -87,9 +87,7 @@ def idm_concat(tensor_list: List[SliceableTensorDict]):
     if not tensor_list:
         raise ValueError("tensor_list must be non-empty")
     first = tensor_list[0]
-    if isinstance(first, SliceableTensorDict):
-        return stack_name(tensor_list, TensorNames.T)
-    return torch.concat(tensor_list, dim=0)
+    return stack_name(tensor_list, TensorNames.T)
 
 
 

@@ -4,14 +4,16 @@ import time
 from datetime import datetime
 from sklearn.preprocessing import StandardScaler
 import torch
+from exps.models.transfollower import Transfollower
+from src.exps.models.lstm import LSTM, CF_LSTM, lstm_update_func
 from src.exps.utils.utils import stack_name
-from src.exps.models.idm import DEFAULT_MASK, DEFAULT_PRED_FUNC, idm_update_func, idm_update_train_series, idm_concat
+from src.exps.models.idm import DEFAULT_MASK, DEFAULT_PRED_FUNC, IDM, idm_update_func, idm_concat
 from src.exps.datahandle.datascalers import DataScaler
 from src.exps.datahandle.dataset import StyledTransfollowerDataset, LSTMDataset
 from src.schema import CFNAMES as CF
 import torch.nn as nn
 from src.exps.loss import LossFunctions, StyleLoss, IDMLoss
-from exps.models.stylecf import StyleTransformer, style_update_func, stylecf_mask, transformer_mask, style_pred_func 
+from src.exps.models.stylecf import StyleTransformer, style_update_func, stylecf_mask, transformer_mask 
 best_model_path = f"models/best-model-{datetime.now():%Y%m%d-%H%M%S}.pth"
 
 
@@ -93,7 +95,7 @@ lstm_data_config = {
 }
 
 lstm_model_config = {
-    "model_name": "CF_LSTM",
+    "model_name": CF_LSTM,
     "num_feature": len(lstm_data_config["in_features"]),
     "pred_step": lstm_data_config["pred_len"],
     "batch_norm": False,
@@ -117,7 +119,7 @@ idm_calibration_config = {
     "resolution": 0.1, # second
     "pred_horizon": 5, # step
     "historic_step": 5, # step
-    "update_func": idm_update_train_series,
+    "update_func": idm_update_func,
     "concat": idm_concat,
     "start_step": 5, # step
     "scaler": DataScaler(),
@@ -140,10 +142,12 @@ test_config = {
     "lstm_state_path": ...,
     "style_state_path": ...,
     "transformer_state_path": ...,
+    "style_token_seconds": 6.0,
 
     # style agent
     "style_agent":  
-    { 
+    {
+        "model": StyleTransformer,
         "pred_func": DEFAULT_PRED_FUNC,
         "update_func": style_update_func,
         "mask": stylecf_mask,
@@ -154,16 +158,18 @@ test_config = {
     # lstm agent
     "lstm_agent":  
     { 
-        "pred_func": style_pred_func,
-        "update_func": style_update_func,
-        "mask": transformer_mask,
+        "model": LSTM,
+        "pred_func": DEFAULT_PRED_FUNC,
+        "update_func": lstm_update_func,
+        "mask": DEFAULT_MASK,
         "concat_func": stack_name
     },
 
     # transformer agent
     "transformer_agent":  
     { 
-        "pred_func": style_pred_func,
+        "model": Transfollower,
+        "pred_func": DEFAULT_PRED_FUNC,
         "update_func": style_update_func,
         "mask": transformer_mask,
         "concat_func": stack_name
@@ -171,7 +177,8 @@ test_config = {
 
     # idm agent 
     "idm_agent":  
-    { 
+    {
+        "model": IDM,
         "pred_func": DEFAULT_PRED_FUNC,
         "update_func": idm_update_func,
         "concat_func": idm_concat,

@@ -1,7 +1,7 @@
 import numpy as np
 from typing import Callable, List
 from src.exps.utils.utils import SampleDataPack
-from src.schema import CFNAMES
+from src.schema import CFNAMES as CF
 from tslearn.metrics import dtw, dtw_path
 
 class CFFilter:
@@ -12,20 +12,20 @@ class CFFilter:
         self.config = filter_config
 
     def space_in_range(self) -> np.ndarray:
-        delta_x = self.data[:, :, self.names[CFNAMES.DELTA_X]]
+        delta_x = self.data[:, :, self.names[CF.DELTA_X]]
         lower, upper = self.config["spacing_range"]
         return np.all((delta_x >= lower) & (delta_x <= upper), axis=1)
 
     def veh_exist(self) -> np.ndarray:
-        id_self = self.data[:, :, self.names[CFNAMES.SELF_ID]]
-        id_lead = self.data[:, :, self.names[CFNAMES.LEAD_ID]]
+        id_self = self.data[:, :, self.names[CF.SELF_ID]]
+        id_lead = self.data[:, :, self.names[CF.LEAD_ID]]
         return np.all(id_self != -1, axis=1) & np.all(id_lead != -1, axis=1)
     
     def dtw_in_range(self) -> np.ndarray:
         values = []
         for idx in range(self.data.shape[0]):
-            v_self = self.data[idx, :, self.names[CFNAMES.SELF_V]]
-            v_lead = self.data[idx, :, self.names[CFNAMES.LEAD_V]]
+            v_self = self.data[idx, :, self.names[CF.SELF_V]]
+            v_lead = self.data[idx, :, self.names[CF.LEAD_V]]
             dist = dtw(v_self, v_lead)
             values.append(dist)
 
@@ -36,8 +36,8 @@ class CFFilter:
     def reaction_in_range(self) -> np.ndarray:
         values = []
         for idx in range(self.data.shape[0]):
-            v_self = self.data[idx, :, self.names[CFNAMES.SELF_V]]
-            v_lead = self.data[idx, :, self.names[CFNAMES.LEAD_V]]
+            v_self = self.data[idx, :, self.names[CF.SELF_V]]
+            v_lead = self.data[idx, :, self.names[CF.LEAD_V]]
             path, _ = dtw_path(v_self, v_lead)
             time_delays = [abs(i - j) * 0.1 for i, j in path if i < len(v_self) and j < len(v_self)]
             reaction_time = np.mean(time_delays)
@@ -48,12 +48,12 @@ class CFFilter:
         return (values >= lower) & (values <= upper)
 
     def no_lane(self) -> np.ndarray:
-        lc = self.data[:, :, self.names[CFNAMES.LC]]
+        lc = self.data[:, :, self.names[CF.LC]]
         return np.all((lc != -1) & (lc != 1), axis=1)
     
     def speed_in_range(self) -> np.ndarray:
-        v_self = self.data[:, :, self.names[CFNAMES.SELF_V]]
-        v_lead = self.data[:, :, self.names[CFNAMES.LEAD_V]]
+        v_self = self.data[:, :, self.names[CF.SELF_V]]
+        v_lead = self.data[:, :, self.names[CF.LEAD_V]]
         lower, upper = self.config["speed_range"]
 
   
@@ -62,8 +62,8 @@ class CFFilter:
         return np.all(in_range, axis=1)
 
     def acc_in_range(self) -> np.ndarray:
-        acc_self = self.data[:, :, self.names[CFNAMES.SELF_A]]
-        acc_lead = self.data[:, :, self.names[CFNAMES.LEAD_A]]
+        acc_self = self.data[:, :, self.names[CF.SELF_A]]
+        acc_lead = self.data[:, :, self.names[CF.LEAD_A]]
         lower, upper = self.config["acceleration_range"]
 
         in_range = (np.minimum(acc_self, acc_lead) >= lower) & (np.maximum(acc_self, acc_lead) <= upper)
@@ -71,29 +71,29 @@ class CFFilter:
         return np.all(in_range, axis=1)
 
     def all_same_leader(self) -> np.ndarray:
-        assert CFNAMES.LEAD_ID in self.names.keys()
-        ids = self.data[:, :, self.names[CFNAMES.LEAD_ID]]
+        assert CF.LEAD_ID in self.names.keys()
+        ids = self.data[:, :, self.names[CF.LEAD_ID]]
         return np.all(ids == ids[:, [0]], axis=1)
 
     def all_same_self(self) -> np.ndarray:
-        assert CFNAMES.SELF_ID in self.names.keys()
-        ids = self.data[:, :, self.names[CFNAMES.SELF_ID]]
+        assert CF.SELF_ID in self.names.keys()
+        ids = self.data[:, :, self.names[CF.SELF_ID]]
         return np.all(ids == ids[:, [0]], axis=1)
 
     def time_headway_check(self) -> np.ndarray:
         assert self.config["thw"][1] >= self.config["thw"][0]
-        delta_x = self.data[:, :, self.names[CFNAMES.DELTA_X]] - self.data[:, :, self.names[CFNAMES.LEAD_L]]
-        v_self = self.data[:, :, self.names[CFNAMES.SELF_V]]
+        delta_x = self.data[:, :, self.names[CF.DELTA_X]] - self.data[:, :, self.names[CF.LEAD_L]]
+        v_self = self.data[:, :, self.names[CF.SELF_V]]
         thw = delta_x / np.maximum(v_self, 1)
         thw_mean = np.mean(thw, axis=1)
         return (thw_mean < self.config["thw"][1]) & (thw_mean > self.config["thw"][0])
 
     def no_truck_self(self) -> np.ndarray:
-        length = self.data[:, :, self.names[CFNAMES.SELF_L]]
+        length = self.data[:, :, self.names[CF.SELF_L]]
         return np.all(length < self.config["length_thres"], axis=1)
 
     def no_truck_leader(self) -> np.ndarray:
-        length = self.data[:, :, self.names[CFNAMES.LEAD_L]]
+        length = self.data[:, :, self.names[CF.LEAD_L]]
         filter_index = np.all(length < self.config["length_thres"], axis=1)
     
         return filter_index
@@ -115,6 +115,6 @@ class CFFilter:
 
         return filter_index
 
-    def filter(self, funcs: List[Callable[["CFFilter"], np.ndarray]]) -> SampleDataPack:
+    def filter(self, funcs: List[Callable]) -> SampleDataPack:
         masks = [func() for func in funcs]
         return SampleDataPack(self.datapack.data[np.logical_and.reduce(masks)], self.datapack.names, self.datapack.rise, self.datapack.kph, self.datapack.kilo_norm, self.datapack.dt)
