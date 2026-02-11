@@ -31,7 +31,7 @@ Recommended Python 3.10+. Key dependencies (non-exhaustive):
 
 You can add a `requirements.txt` or install missing packages as needed.
 
-## Data तैयारी
+## Data 
 The project uses ZenTraffic preprocessed data (`.npy`) or raw CSV in multiple places:
 - Training/testing: `data_path` in `training.py` and `testing.py`
 - Config: `test_config["datapath"]` in `src/exps/configs.py`
