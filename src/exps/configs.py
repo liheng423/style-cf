@@ -5,7 +5,7 @@ from datetime import datetime
 from sklearn.preprocessing import StandardScaler
 import torch
 from exps.models.transfollower import Transfollower
-from src.exps.models.lstm import LSTM, CF_LSTM, lstm_update_func
+from src.exps.models.lstm import CF_LSTM, lstm_update_func
 from src.exps.utils.utils import stack_name
 from src.exps.models.idm import DEFAULT_MASK, DEFAULT_PRED_FUNC, IDM, idm_update_func, idm_concat
 from src.exps.datahandle.datascalers import DataScaler
@@ -158,7 +158,7 @@ test_config = {
     # lstm agent
     "lstm_agent":  
     { 
-        "model": LSTM,
+        "model": CF_LSTM,
         "pred_func": DEFAULT_PRED_FUNC,
         "update_func": lstm_update_func,
         "mask": DEFAULT_MASK,
