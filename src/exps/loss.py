@@ -4,7 +4,7 @@ from sympy import true
 from tensordict import TensorDict
 import torch.nn.functional as F
 import torch
-from src.schema import CFNAMES as CF
+from ..schema import CFNAMES as CF
 
 
 class LossUtils:
@@ -42,8 +42,11 @@ class LossFunctions:
 
 
         _, pred_dis = LossUtils._predict_kinematics(accs, ground_truth, dt)
-        true_lead_x = ground_truth[:, :, true_leadx_idx]
-        true_delta_x = ground_truth[:, :, true_deltax_idx]
+        # ground_truth has length T+1 with initial state at index 0.
+        # Align target to predicted sequence length T.
+        t_len = accs.shape[1]
+        true_lead_x = ground_truth[:, 1 : t_len + 1, true_leadx_idx]
+        true_delta_x = ground_truth[:, 1 : t_len + 1, true_deltax_idx]
         return F.mse_loss(true_lead_x - pred_dis, true_delta_x)
     
     @staticmethod
@@ -51,7 +54,8 @@ class LossFunctions:
 
 
         _, pred_selfx = LossUtils._predict_kinematics(accs, ground_truth, dt)
-        true_selfx = ground_truth[:, :, 0]  # (N, T)
+        t_len = accs.shape[1]
+        true_selfx = ground_truth[:, 1 : t_len + 1, 0]
         return F.mse_loss(pred_selfx, true_selfx)
 
 

@@ -1,5 +1,14 @@
 from typing import Any, List, Mapping, Sequence, TypeVar, cast
-from src.utils.logger import get_with_warn, logger
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def get_with_warn(payload: dict, key: str, default):
+    if key not in payload or payload[key] is None:
+        logger.warning(f"x_payload missing '{key}', using default value")
+        return default
+    return payload[key]
 
 # `namebuilder` parses the data structure in this shape, and enables to map the name back to index
 

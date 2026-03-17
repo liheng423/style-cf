@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from typing import Iterable
 
-from src.exps.utils.utils import SampleDataPack
+from ..utils.utils import SampleDataPack
 
 
 def _drop_names(tensor: torch.Tensor) -> torch.Tensor:

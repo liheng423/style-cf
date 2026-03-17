@@ -5,14 +5,14 @@
 from src.exps.models.idm import IDM
 from src.exps.configs import data_filter_config, filter_names, idm_calibration_config
 from src.exps.idm_calibrate import calibrate_idm
-from exps.train.model_trainer import build_dataset
+from src.exps.train.model_trainer import build_dataset
 from src.exps.utils.utils import build_id_datapack, load_zen_data
 
 
 # %% 
 def _dataset(head=None):
 
-    data_path = "F:\DATA\ZenTraffic\ZenTraffic30kalman.npy"
+    data_path = "/Users/blow/datasets/DATA/ZenTraffic/ZenTraffic30.npy" 
 
     d = load_zen_data(data_path, rise=True, in_kph=False, kilo_norm=True)
     return d.head(head) if head is not None else d

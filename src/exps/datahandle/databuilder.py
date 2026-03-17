@@ -1,8 +1,8 @@
 
 from typing import List
-from exps.datahandle.filters import CFFilter
-from exps.utils.utils import SampleDataPack
-from src.schema import CFNAMES as CF
+from .filters import CFFilter
+from ..utils.utils import SampleDataPack
+from ...schema import CFNAMES as CF
 
 
 def build_dataset(d: SampleDataPack, d_filters: List, d_filter_config: dict) -> SampleDataPack:

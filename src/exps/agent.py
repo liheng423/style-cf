@@ -8,10 +8,10 @@ from tensordict import TensorDict
 from torch import Tensor
 from torch.nn import Module
 
-from src.exps.datahandle.datascalers import DataScaler
-from src.exps.utils.utils_kine import _predict_kinematics
-from src.exps.utils.utils import SliceableTensorDict
-from src.stylecf.schema import TensorNames
+from .datahandle.datascalers import DataScaler
+from .utils.utils_kine import _predict_kinematics
+from .utils.utils import SliceableTensorDict
+from ..stylecf.schema import TensorNames
 
 
 
@@ -82,6 +82,16 @@ class Agent:
     ):
         """
         Implement how to update the training series with predicted self movements and leader movements.
+        """
+        raise NotImplementedError("This function must be rewritten to use")
+
+    def _update_train_series_lead(
+        self,
+        train_series,
+        leader_movements,
+    ):
+        """
+        Implement how to update the training series when only leader movements are known.
         """
         raise NotImplementedError("This function must be rewritten to use")
 

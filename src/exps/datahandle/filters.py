@@ -1,7 +1,7 @@
 import numpy as np
 from typing import Callable, List
-from src.exps.utils.utils import SampleDataPack
-from src.schema import CFNAMES as CF
+from ..utils.utils import SampleDataPack
+from ...schema import CFNAMES as CF
 from tslearn.metrics import dtw, dtw_path
 
 class CFFilter:

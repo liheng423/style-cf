@@ -9,13 +9,13 @@ from torch import Tensor
 from torch.utils import data
 from tensordict import TensorDict
 from tqdm import tqdm
-from src.exps.models.idm import IDM
-from src.exps.agent import Agent
+from .models.idm import IDM
+from .agent import Agent
 from sko.GA import GA
-from src.exps.datahandle.dataset import IDMDataset
-from src.exps.utils.utils import SampleDataPack, ensure_dir
-from exps.train.model_trainer import build_dataset
-from src.schema import CFNAMES as CF
+from .datahandle.dataset import IDMDataset
+from .utils.utils import SampleDataPack, ensure_dir
+from .train.model_trainer import build_dataset
+from ..schema import CFNAMES as CF
 
 def evaluate_recursive(model: nn.Module, dataloader: DataLoader, criterion: nn.Module, simulator: Agent, config: dict):
     """

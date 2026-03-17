@@ -2,10 +2,10 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from tensordict import TensorDict
 import numpy as np
-from src.stylecf.schema import TensorNames
+from ...stylecf.schema import TensorNames
 from typing import Callable, Optional
-from src.exps.utils.utils import SliceableTensorDict
-from src.utils.logger import get_with_warn
+from ..utils.utils import SliceableTensorDict
+from ...utils.logger import get_with_warn
 
 def _fit_scaler(scaler, data: np.ndarray):
     shape = data.shape
@@ -130,7 +130,9 @@ class StyledTransfollowerDataset(TransformerDataset):
             x_seq_enc = get_with_warn(x_payload, "enc_x", x_seq_enc)
             x_seq_dec = get_with_warn(x_payload, "dec_x", x_seq_dec)
             x_style = get_with_warn(x_payload, "style", x_style)
-        super().__init__(x_seq_enc, x_seq_dec, x_style, y_seq, None, data_config, transform=transform)
+        # x_style is a sequence (N, T, F), not static features; pass x_static=None.
+        # Transform already applied above, so avoid double-transform in the base class.
+        super().__init__(x_seq_enc, x_seq_dec, None, y_seq, None, data_config, transform=None)
         self.x_style = _to_named_tensor(x_style, [TensorNames.N, TensorNames.T, TensorNames.F]).float()
 
     def __getitem__(self, idx):

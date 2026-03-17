@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from schema import *
+from ..schema import *
 import bisect
 
 kph2ms = lambda kph: kph / 3.6

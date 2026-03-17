@@ -4,11 +4,11 @@ from typing import List
 from tensordict import TensorDict
 from torch.nn import functional as F
 
-from src.exps.agent import Agent
-from src.exps.utils.utils import SliceableTensorDict, td_cat
-from src.exps.utils.utils_namebuilder import _build_name_dict
-from src.schema import FEATNAMES as FEAT
-from src.schema import CFNAMES as CF
+from ..agent import Agent
+from ..utils.utils import SliceableTensorDict, td_cat
+from ..utils.utils_namebuilder import _build_name_dict
+from ...schema import FEATNAMES as FEAT
+from ...schema import CFNAMES as CF
 
 
 

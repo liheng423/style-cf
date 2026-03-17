@@ -13,15 +13,17 @@ from src.exps.configs import style_data_config, style_train_config
 from src.schema import CFNAMES as CF
 from src.stylecf.schema import TensorNames
 
-from exps.train.model_trainer import train_stylecf
-from exps.models.stylecf import StyleTransformer
+from src.exps.train.model_trainer import train_stylecf
+from src.exps.models.stylecf import StyleTransformer
 from src.exps.configs import *
+
+HEAD = 2000
 # %% Utils
 
 
 def _dataset(head=None):
 
-    data_path = "F:\DATA\ZenTraffic\ZenTraffic30kalman.npy"
+    data_path = "/Users/blow/datasets/DATA/ZenTraffic/ZenTraffic30.npy"
 
     d = load_zen_data(data_path, rise=True, in_kph=False, kilo_norm=True)
     return d.head(head) if head is not None else d
@@ -30,7 +32,7 @@ def _dataset(head=None):
         
 def test_style_train():
     
-    d = _dataset()
+    d = _dataset(HEAD)
 
     _, train_loader, test_loader, _ = build_style_loader(d, filter_names, data_filter_config, data_config=style_data_config)
 

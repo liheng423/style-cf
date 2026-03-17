@@ -4,11 +4,93 @@
 
 import torch
 import torch.nn as nn
-from src.exps.agent import Agent
-from src.exps.utils.utils import SliceableTensorDict
-from src.exps.utils.utils_namebuilder import _build_name_dict
-from src.schema import CFNAMES as CF
-from typing import List, cast
+from ..agent import Agent
+from ..utils.utils import SliceableTensorDict
+from ..utils.utils_namebuilder import _build_name_dict
+from ...schema import CFNAMES as CF
+from typing import Any, Callable, Mapping, Protocol, Sequence, Tuple, Union, cast, runtime_checkable
+
+
+class Scaler(Protocol):
+    def transform(self, x: Any) -> Any: ...
+    def inverse_transform(self, x: Any) -> Any: ...
+
+
+@runtime_checkable
+class TrainSeriesWithInputs(Protocol):
+    inputs: Tuple[Any, ...]
+
+
+def _resolve_enc_dec_scalers(simulator: Agent) -> tuple[Scaler, Scaler]:
+    if hasattr(simulator, "scalers"):
+        scalers = cast(Union[Mapping[str, Scaler], Sequence[Scaler]], simulator.scalers)
+    elif hasattr(simulator, "scaler"):
+        scalers = cast(Union[Mapping[str, Scaler], Sequence[Scaler]], simulator.scaler)
+    else:
+        raise AttributeError("Simulator has no scalers or scaler attribute")
+
+    if isinstance(scalers, Mapping):
+        enc_scaler = scalers.get("enc_x")
+        dec_scaler = scalers.get("dec_x")
+        if enc_scaler is None or dec_scaler is None:
+            raise KeyError("scalers must include 'enc_x' and 'dec_x'")
+        return enc_scaler, dec_scaler
+
+    if not isinstance(scalers, Sequence):
+        raise TypeError("scalers must be a mapping or a sequence")
+
+    if len(scalers) < 2:
+        raise ValueError("scalers sequence must contain at least two elements")
+
+    return scalers[0], scalers[1]
+
+
+TrainSeries = Union[SliceableTensorDict, TrainSeriesWithInputs]
+
+
+def transformer_lead_update_func(simulator: Agent, data_config: dict) -> Callable[[TrainSeries, torch.Tensor], TrainSeries]:
+    """
+    Update decoder inputs when only leader movements are known.
+    """
+    x_groups = data_config.get("x_groups", data_config)
+    name_dict = _build_name_dict(x_groups)
+    leader_v_idx = name_dict["dec_x"][CF.LEAD_V]
+    enc_scaler, dec_scaler = _resolve_enc_dec_scalers(simulator)
+
+    def _update_train_series_lead(train_series: TrainSeries, leader_movements: torch.Tensor) -> TrainSeries:
+        if hasattr(train_series, "inputs"):
+            train_with_inputs = cast(TrainSeriesWithInputs, train_series)
+            enc_series = train_with_inputs.inputs[0]
+            dec_series = train_with_inputs.inputs[1]
+            rest = train_with_inputs.inputs[2:]
+
+            enc_series = enc_scaler.inverse_transform(enc_series)
+            dec_series = dec_scaler.inverse_transform(dec_series)
+
+            dec_series[:, leader_v_idx] = leader_movements[:, 1]
+
+            enc_scaled = torch.tensor(enc_scaler.transform(enc_series)).float()
+            dec_scaled = torch.tensor(dec_scaler.transform(dec_series)).float()
+
+            train_with_inputs.inputs = (enc_scaled, dec_scaled, *rest)
+            return train_with_inputs
+
+        if isinstance(train_series, SliceableTensorDict):
+            dec_series = train_series["dec_x"]
+            dec_names = dec_series.names
+            dec_series = dec_scaler.inverse_transform(dec_series)
+            dec_series[:, leader_v_idx] = leader_movements[:, 1]
+            dec_scaled = torch.tensor(dec_scaler.transform(dec_series)).float()
+            if dec_names is not None:
+                dec_scaled = dec_scaled.refine_names(*dec_names)
+
+            out = {key: train_series[key] for key in train_series.keys()}
+            out["dec_x"] = dec_scaled
+            return SliceableTensorDict(out, batch_size=train_series.batch_size, names=train_series.names)
+
+        raise TypeError("Unsupported train_series type for leader update")
+
+    return _update_train_series_lead
 
 
 
@@ -18,6 +100,7 @@ def transformer_update_func(simulator: Agent, data_config: dict):
     """
 
     name_dict = _build_name_dict(data_config["x_groups"])
+    simulator._update_train_series_lead = transformer_lead_update_func(simulator, data_config)
 
     def _update_train_series(train_series: SliceableTensorDict, self_movements: torch.Tensor, leader_movements: torch.Tensor):
         """

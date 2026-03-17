@@ -5,12 +5,12 @@
 import os
 import numpy as np
 import pandas as pd
-from dataprocess.extractor import *
-from dataprocess.tableutils import *
-from utils.utils import *
-from dataprocess.processor import *
+from src.dataprocess.extractor import *
+from src.dataprocess.tableutils import *
+from src.utils.utils import *
+from src.dataprocess.processor import *
 import json
-from dataprocess.filters import *
+from src.dataprocess.filters import *
 
 # %% Configuration for Zen-traffic data processing
 DATA_FILE = "F:\DATA\Zen2\Zen-traffic\Data"

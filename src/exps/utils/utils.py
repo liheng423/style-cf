@@ -5,9 +5,9 @@ import torch
 from tensordict import TensorDict, TensorDictBase
 from torch.utils.data._utils.collate import default_collate
 import numpy as np
-from src.exps.utils.utils_kine import _predict_kinematics_np
-from src.schema import CFNAMES as CF
-from src.stylecf.schema import TensorNames
+from .utils_kine import _predict_kinematics_np
+from ...schema import CFNAMES as CF
+from ...stylecf.schema import TensorNames
 ##
 # batch = TensorDict({
 #     "enc_x": torch.randn([N, F, T], names=["N", "T", "F"]),

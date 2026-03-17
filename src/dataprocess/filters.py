@@ -1,6 +1,6 @@
 from typing import Callable
 import numpy as np
-from schema import *
+from ..schema import *
 
 
 def filter_data(data: np.ndarray, filters: list[Callable]) -> tuple[bool, int]:

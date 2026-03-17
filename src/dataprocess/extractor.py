@@ -1,14 +1,14 @@
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass, field
-from dataprocess.processor import *
-from schema import *
-from dataprocess.tableutils import *
+from .processor import *
+from ..schema import *
+from .tableutils import *
 from tqdm import tqdm
 from collections import namedtuple
 from typing import Any, Dict, Callable
 import random
-from dataprocess.filters import VehicleTimeFilter, filter_data
+from .filters import VehicleTimeFilter, filter_data
 # %% ================ Single DataPoint (VehicleTime) Extraction ====================
 @dataclass(slots=True)
 class VehicleTime:
