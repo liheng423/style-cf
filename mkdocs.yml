@@ -1,0 +1,39 @@
+site_name: Style-CF Docs
+site_description: Key documentation for training, testing, and calibration in Style-CF
+site_dir: site_docs
+docs_dir: docs
+
+theme:
+  name: material
+  language: zh
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Quickstart: quickstart.md
+  - Workflow: workflow.md
+  - Configs: configs.md
+  - API Reference: api.md
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths:
+            - .
+          options:
+            show_source: false
+            show_root_heading: true
+            show_symbol_type_toc: true
+            members_order: source
+            merge_init_into_class: true
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true

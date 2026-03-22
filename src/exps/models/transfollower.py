@@ -5,7 +5,7 @@
 import torch
 import torch.nn as nn
 from ..agent import Agent
-from ..utils.utils import SliceableTensorDict
+from ..utils.utils import SliceableTensorDict, restore_tensor_names_like, strip_tensor_names
 from ..utils.utils_namebuilder import _build_name_dict
 from ...schema import CFNAMES as CF
 from typing import Any, Callable, Mapping, Protocol, Sequence, Tuple, Union, cast, runtime_checkable
@@ -46,6 +46,29 @@ def _resolve_enc_dec_scalers(simulator: Agent) -> tuple[Scaler, Scaler]:
 
 
 TrainSeries = Union[SliceableTensorDict, TrainSeriesWithInputs]
+
+
+def build_causal_tgt_mask(
+    tgt_len: int,
+    device: torch.device,
+    unmask_first_col: bool = False,
+) -> torch.Tensor:
+    """
+    Build an additive causal attention mask for decoder self-attention.
+
+    Values:
+    - 0.0: can attend
+    - -inf: blocked
+    """
+    if tgt_len <= 0:
+        raise ValueError("tgt_len must be positive")
+    tgt_mask = torch.triu(
+        torch.full((tgt_len, tgt_len), float("-inf"), device=device),
+        diagonal=1,
+    )
+    if unmask_first_col:
+        tgt_mask[:, 0] = 0.0
+    return tgt_mask
 
 
 def transformer_lead_update_func(simulator: Agent, data_config: dict) -> Callable[[TrainSeries, torch.Tensor], TrainSeries]:
@@ -161,11 +184,10 @@ def transformer_mask(data_config: dict):
         dec_pred_series = cast(torch.Tensor, pred_data["dec_x"])
 
         # take last label_len rows from seq_data's decoder input
-        dec_past = dec_seq_series[-label_len:].clone()  # shape: (label_len, dim)
+        dec_past = strip_tensor_names(dec_seq_series[-label_len:].clone())  # shape: (label_len, dim)
+        dec_pred_series = strip_tensor_names(dec_pred_series)
 
         dec_future = dec_past.new_zeros((pred_len, dec_past.shape[-1]))
-        if dec_past.names is not None:
-            dec_future = dec_future.refine_names(*dec_past.names)
 
         # take pred_len rows from pred_data's decoder input
         leader_v_idx = name_dict["dec_x"][CF.LEAD_V]
@@ -183,6 +205,7 @@ def transformer_mask(data_config: dict):
 
         # concatenate past and masked future
         dec_series_masked = torch.cat([dec_past, dec_future], dim=0)  # shape: (label_len + pred_len, dim)
+        dec_series_masked = restore_tensor_names_like(dec_series_masked, dec_seq_series)
 
         out = {"enc_x": enc_seq_series, "dec_x": dec_series_masked}
         return SliceableTensorDict(out, batch_size=seq_data.batch_size, names=seq_data.names)
@@ -219,8 +242,9 @@ class Transfollower(nn.Module):
         dec_pos = torch.arange(0, dec_inp.shape[1]).to(dec_inp.device)
         enc_inp = self.enc_emb(enc_inp) + self.enc_positional_embedding(enc_pos)[None,:,:]
         dec_inp = self.dec_emb(dec_inp) + self.dec_positional_embedding(dec_pos)[None,:,:]
-        
-        transformer_out = self.transformer(enc_inp, dec_inp) # out: (Batch, time, feature)
+
+        tgt_mask = build_causal_tgt_mask(dec_inp.shape[1], dec_inp.device)
+        transformer_out = self.transformer(enc_inp, dec_inp, tgt_mask=tgt_mask) # out: (Batch, time, feature)
         out = self.out_proj(transformer_out)
         return out[:,-self.settings["pred_len"]:,:].squeeze(2)
     

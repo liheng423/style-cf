@@ -12,7 +12,8 @@ Style-based car-following modeling and experiments. The project includes:
 - `src/exps/datahandle/`: datasets, features, filters, scalers
 - `src/dataprocess/`: raw trajectory processing and extraction
 - `training.py`: StyleCF training example
-- `testing.py`: testing/inference example (incomplete)
+- `testing.py`: testing/inference entry script
+- `src/testing.py`: testing/evaluation callable module
 - `idm_calibrate.py`: IDM calibration example
 - `zen_data_example.py`: ZenTraffic raw data processing example
 - `test/`: unit tests and test runner
@@ -83,7 +84,6 @@ Some tests are skipped and depend on dataset paths; enable or edit as needed.
 
 ## Notes
 - Many paths are placeholders; update before training.
-- `testing.py` is incomplete (currently stops at dataloader build).
 - For GPU, install a CUDA-enabled PyTorch build.
 
 ## License

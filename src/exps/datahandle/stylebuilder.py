@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 from typing import Iterable
 
+from . import dataset as dataset_utils
 from ..utils.utils import SampleDataPack
 
 
@@ -37,6 +38,7 @@ def build_style_tokens_from_datapack(
     feature_names: Iterable[str],
     embedder: nn.Module,
     seconds: float,
+    scaler: object | None = None,
     device: torch.device | None = None,
 ) -> torch.Tensor:
     """
@@ -47,6 +49,7 @@ def build_style_tokens_from_datapack(
         feature_names: feature keys used as style inputs
         embedder: stylecf embedder module
         seconds: number of seconds from the start of each sample to use
+        scaler: optional scaler matching training-time style transform
         device: optional device for embedding
 
     Returns:
@@ -60,6 +63,8 @@ def build_style_tokens_from_datapack(
 
     feat_indices = [datapack.names[name] for name in feature_names]
     style_traj = datapack.data[:, :steps, :][:, :, feat_indices]
+    if scaler is not None:
+        style_traj = dataset_utils._transform(scaler, style_traj)
     style_traj_t = torch.tensor(style_traj, dtype=torch.float32)
     if device is not None:
         style_traj_t = style_traj_t.to(device)

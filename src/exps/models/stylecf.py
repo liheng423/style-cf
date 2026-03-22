@@ -1,17 +1,17 @@
-from typing import List, cast
+from typing import Any, Mapping, Protocol, cast
 from tensordict import TensorDict
-from typing import Any
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from tqdm import tqdm
 
-from .transfollower import transformer_lead_update_func, transformer_update_func, transformer_mask
+from .transfollower import (
+    build_causal_tgt_mask,
+    transformer_lead_update_func,
+    transformer_update_func,
+    transformer_mask,
+)
 from ..agent import Agent
 from ..utils.utils import SliceableTensorDict, drop_tensor_names
-from ...schema import CFNAMES as CF
-from typing import Protocol
 
 
 class StyleModel(Protocol):
@@ -114,12 +114,12 @@ class StyleConditionedTransfollower(nn.Module):
         # dec_embed = style_token + dec_embed
 
         # === Transformer forward ===
-        # Generate a causal mask for the decoder (length T_dec), while the style token is unmasked.
+        # Causal mask must include the prepended style token.
+        tgt_mask = build_causal_tgt_mask(T_dec + 1, device, unmask_first_col=True)
         transformer_out = self.transformer(
             src=enc_embed,
             tgt=dec_embed,
-            tgt_mask=self.transformer.generate_square_subsequent_mask(T_dec).to(device),
-            tgt_is_causal=True,
+            tgt_mask=tgt_mask,
         )  # (B, T_dec+1, D)
 
         # Output projection
@@ -209,36 +209,61 @@ class StyleTransformer(nn.Module, StyleModel):
         accs = self.transfollower((enc_inp, dec_inp, d_style))
         return accs, d_style
 
+
+class EmbeddingStyleTransformer(nn.Module):
+    """
+    Testing/inference wrapper:
+    run the style-conditioned transfollower with a precomputed style embedding.
+    """
+
+    def __init__(self, style_model: StyleTransformer):
+        super().__init__()
+        self.transfollower = style_model.transfollower
+
+    def forward(self, x: TensorDict):
+        enc_inp = drop_tensor_names(cast(torch.Tensor, x["enc_x"]))
+        dec_inp = drop_tensor_names(cast(torch.Tensor, x["dec_x"]))
+        style_embed = drop_tensor_names(cast(torch.Tensor, x["style_embed"]))
+        return self.transfollower((enc_inp, dec_inp, style_embed))
+
 ######## MASK ##########
-def stylecf_mask(data_config):
+def stylecf_mask(data_config: Mapping[str, Any], style_key: str = "style"):
     """
     Construct a masked decoder input by combining past (from seq_data) and future (from pred_data),
-    and masking the future portion to avoid leakage. Style is copied through unmodified.
+    and masking the future portion to avoid leakage.
+    A static style-like key is copied through unmodified.
     """
     base_mask = transformer_mask(data_config)
 
     def _mask(seq_data: SliceableTensorDict, pred_data: SliceableTensorDict, *_: Any) -> SliceableTensorDict:
         out = base_mask(seq_data, pred_data)
-        style = cast(torch.Tensor, seq_data["style"])
-        # Style should be fully observed; NaNs indicate missing or invalid style sequences.
-        assert not torch.isnan(style).any()
-        out["style"] = style
+        if style_key not in seq_data.keys():
+            raise KeyError(f"Missing required key '{style_key}' in seq_data")
+        style = cast(torch.Tensor, seq_data[style_key])
+        if style.is_floating_point():
+            # Style should be fully observed; NaNs indicate invalid style sequences.
+            assert not torch.isnan(style).any()
+        out[style_key] = style
         return out
     
     return _mask
 
 
+def style_embed_mask(data_config: Mapping[str, Any]):
+    """
+    Variant of stylecf_mask used by precomputed style embedding pipelines.
+    """
+    return stylecf_mask(data_config, style_key="style_embed")
 
 
-
-def style_update_func(simulator: Agent, featuer_dict: dict[str, List[str]]): 
-    update_transformer = transformer_update_func(simulator, featuer_dict)
-    simulator._update_train_series_lead = transformer_lead_update_func(simulator, featuer_dict)
+def style_update_func(simulator: Agent, feature_dict: Mapping[str, Any], style_key: str = "style"):
+    update_transformer = transformer_update_func(simulator, feature_dict)
+    simulator._update_train_series_lead = transformer_lead_update_func(simulator, feature_dict)
 
     def _update_train_series(train_series: SliceableTensorDict, self_movements: torch.Tensor, leader_movements: torch.Tensor):
         """
         Update the training series with simulated movements.
-        Style is not updated because each style token is fixed before testing.
+        Style-like feature is copied through as static conditioning.
 
         Args:
             train_series: SliceableTensorDict 
@@ -247,10 +272,17 @@ def style_update_func(simulator: Agent, featuer_dict: dict[str, List[str]]):
         """
 
         out = update_transformer(train_series, self_movements, leader_movements)
-        if "style" in train_series.keys():
-            style = train_series["style"]
+        if style_key in train_series.keys():
+            style = train_series[style_key]
             if style is not None:
-                out["style"] = style
+                out[style_key] = style
         return out
     
     return _update_train_series
+
+
+def style_embed_update_train_series(simulator: Agent, feature_dict: Mapping[str, Any]):
+    """
+    Variant of style_update_func used by precomputed style embedding pipelines.
+    """
+    return style_update_func(simulator, feature_dict, style_key="style_embed")

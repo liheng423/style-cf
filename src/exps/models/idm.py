@@ -76,7 +76,11 @@ def idm_update_func(simulator):
         x[... , 0] = self_movements[... , 1]
         x[... , 2] = leader_movements[... , 0] - self_movements[... , 0]
 
-        return SliceableTensorDict({TensorNames.INPUTS: x}, batch_size=x.shape[0], names=train_series.names)
+        return SliceableTensorDict(
+            {TensorNames.INPUTS: x},
+            batch_size=train_series.batch_size,
+            names=train_series.names,
+        )
 
     return _update_train_series
 

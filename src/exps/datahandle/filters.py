@@ -39,7 +39,7 @@ class CFFilter:
             v_self = self.data[idx, :, self.names[CF.SELF_V]]
             v_lead = self.data[idx, :, self.names[CF.LEAD_V]]
             path, _ = dtw_path(v_self, v_lead)
-            time_delays = [abs(i - j) * 0.1 for i, j in path if i < len(v_self) and j < len(v_self)]
+            time_delays = [abs(i - j) * 0.1 for i, j in path if i < len(v_self) and j < len(v_lead)]
             reaction_time = np.mean(time_delays)
             values.append(reaction_time)
 
@@ -100,7 +100,11 @@ class CFFilter:
     
     def inconsistent(self) -> np.ndarray: 
         self_pos_cons, self_spd_cons = self.datapack.check_consistency()
-        leader_pos_cons, leader_spd_cons = self.datapack.check_consistency()
+        leader_pos_cons, leader_spd_cons = self.datapack.check_consistency(
+            x_key=CF.LEAD_X,
+            v_key=CF.LEAD_V,
+            a_key=CF.LEAD_A,
+        )
 
         self_pos_cons, self_spd_cons = np.abs(self_pos_cons).mean(axis=1), np.abs(self_spd_cons).mean(axis=1)
         leader_pos_cons, leader_spd_cons = np.abs(leader_pos_cons).mean(axis=1), np.abs(leader_spd_cons).mean(axis=1)

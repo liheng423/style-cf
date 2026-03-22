@@ -53,11 +53,12 @@ def build_style_loader(
     d = build_dataset(d, d_filters, d_filter_config)
     
     # construct new features
+    num_samples = d.data.shape[0]
+    num_steps = d.data.shape[1]
+    time_axis = np.arange(num_steps, dtype=np.float32) * float(d.dt)
+
     d.append_col(
-        np.expand_dims(
-            np.tile(np.arange(0, 30, 0.1), (len(d[:, 0, CF.LEAD_V]), 1)),
-            2,
-        ),
+        np.tile(time_axis, (num_samples, 1))[:, :, np.newaxis],
         CF.TIME,
     )
     d.append_col(
@@ -166,7 +167,7 @@ def train_stylecf(model_config, train_config, train_loader: DataLoader, test_loa
     # for param in model.embedder.parameters():
     #     param.requires_grad = False
 
-    optimizer = optim_func(model.parameters(), lr=1e-4)
+    optimizer = optim_func(model.parameters(), lr=float(train_config.get("lr", 1e-4)))
 
     scheduler = ReduceLROnPlateau(
         optimizer, 

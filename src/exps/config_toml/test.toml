@@ -1,0 +1,47 @@
+[test_config]
+datapath = 'F:\DATA\ZenTraffic\ZenTraffic90kalman_new.npy'
+device = "cpu"
+idm_state = [24.68, 1.67, 1.37, 1.68, 2.46]
+lstm_state_path = "data/saved_models/lstm.pth"
+style_state_path = "data/saved_models/stylecf.pth"
+transformer_state_path = "data/saved_models/transfollower.pth"
+transformer_num_encoder_layers = 1
+transformer_num_decoder_layers = 1
+style_scaler_path = "data/saved_scalers/scaler_stylecf.pkl"
+transformer_scaler_path = "data/saved_scalers/scaler_transfollower.pkl"
+lstm_scaler_path = "data/saved_scalers/scaler_lstm.pkl"
+style_token_seconds = 6.0
+style_token_mode = "per_sample"
+style_dummy_seed = 42
+style_shuffle_seed = 42
+style_window = [0, 300]
+test_window = [300, 900]
+enabled_models = ["stylecf_global", "stylecf_shuffle"]
+
+[test_config.style_agent]
+model = "StyleTransformer"
+pred_func = "DEFAULT_PRED_FUNC"
+update_func = "style_update_func"
+mask = "stylecf_mask"
+concat_func = "stack_name"
+
+[test_config.lstm_agent]
+model = "CF_LSTM"
+pred_func = "DEFAULT_PRED_FUNC"
+update_func = "lstm_update_func"
+mask = "DEFAULT_MASK"
+concat_func = "stack_name"
+
+[test_config.transformer_agent]
+model = "Transfollower"
+pred_func = "DEFAULT_PRED_FUNC"
+update_func = "style_update_func"
+mask = "transformer_mask"
+concat_func = "stack_name"
+
+[test_config.idm_agent]
+model = "IDM"
+pred_func = "DEFAULT_PRED_FUNC"
+update_func = "idm_update_func"
+concat_func = "idm_concat"
+mask = "DEFAULT_MASK"

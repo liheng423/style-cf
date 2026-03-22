@@ -1,0 +1,35 @@
+[lstm_model_config]
+model_name = "CF_LSTM"
+num_feature = "auto"
+pred_step = "auto"
+batch_norm = false
+bidirectional = false
+dropout = 0.0
+regular_output = false
+regular_range = [-6, 6]
+regular_func = "tanh"
+activation_func = "Sigmoid"
+activate_name = "sigmoid"
+state_num_feat = 10
+
+[idm_calibration_config]
+downsample = 5
+loss = "IDMLoss.acc_dis_mse"
+resolution = 0.1
+pred_horizon = 5
+historic_step = 5
+update_func = "idm_update_func"
+concat = "idm_concat"
+start_step = 5
+scaler = "DataScaler"
+pred_func = "DEFAULT_PRED_FUNC"
+mask = "DEFAULT_MASK"
+randomseed = 42
+save_path = "./data/idm_calibration"
+device = "cpu"
+
+[idm_calibration_config.x_groups.x]
+features = ["SELF_V", "LEAD_V", "DELTA_X"]
+
+[idm_calibration_config.y_groups.y]
+features = ["SELF_X", "SELF_V", "SELF_A"]
