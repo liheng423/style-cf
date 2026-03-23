@@ -109,7 +109,8 @@ def transformer_lead_update_func(simulator: Agent, data_config: dict) -> Callabl
 
             out = {key: train_series[key] for key in train_series.keys()}
             out["dec_x"] = dec_scaled
-            return SliceableTensorDict(out, batch_size=train_series.batch_size, names=train_series.names)
+            td_cls = type(train_series)
+            return td_cls(out, batch_size=train_series.batch_size, names=train_series.names)
 
         raise TypeError("Unsupported train_series type for leader update")
 
@@ -161,7 +162,8 @@ def transformer_update_func(simulator: Agent, data_config: dict):
             dec_series_scaled = dec_series_scaled.refine_names(*dec_names)
 
         out = {"enc_x": enc_series_scaled, "dec_x": dec_series_scaled}
-        return SliceableTensorDict(out, batch_size=train_series.batch_size, names=train_series.names)
+        td_cls = type(train_series)
+        return td_cls(out, batch_size=train_series.batch_size, names=train_series.names)
 
     return _update_train_series
 

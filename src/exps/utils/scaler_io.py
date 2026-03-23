@@ -57,4 +57,17 @@ def load_scaler_payload(path: str | Path) -> Any:
     )
 
 
-__all__ = ["load_scaler_payload"]
+def save_scaler_payload(payload: Any, path: str | Path) -> Path:
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        import joblib
+
+        joblib.dump(payload, p)
+    except Exception:
+        with p.open("wb") as fh:
+            pickle.dump(payload, fh)
+    return p
+
+
+__all__ = ["load_scaler_payload", "save_scaler_payload"]

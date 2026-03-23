@@ -4,6 +4,39 @@ from ..utils.utils import SampleDataPack
 from ...schema import CFNAMES as CF
 from tslearn.metrics import dtw, dtw_path
 
+
+def mask_min_self_id_samples(datapack: SampleDataPack, min_samples: int) -> np.ndarray:
+    """
+    Keep only samples whose SELF_ID has at least `min_samples` trajectories.
+    """
+    if min_samples <= 1:
+        return np.ones(datapack.data.shape[0], dtype=bool)
+
+    if CF.SELF_ID not in datapack.names:
+        raise KeyError(f"{CF.SELF_ID} is required for min-self-id filtering")
+
+    self_ids = datapack[:, 0, CF.SELF_ID].astype(np.int64)
+    unique_ids, counts = np.unique(self_ids, return_counts=True)
+    keep_ids = unique_ids[counts >= int(min_samples)]
+    if keep_ids.size == 0:
+        raise ValueError(
+            f"No SELF_ID satisfies min_samples={min_samples}. "
+            "Lower data_filter_config['min_self_id_samples']."
+        )
+    return np.isin(self_ids, keep_ids)
+
+
+def filter_min_self_id_samples(datapack: SampleDataPack, min_samples: int) -> SampleDataPack:
+    mask = mask_min_self_id_samples(datapack, min_samples=min_samples)
+    return SampleDataPack(
+        datapack.data[mask],
+        datapack.names.copy(),
+        datapack.rise,
+        datapack.kph,
+        datapack.kilo_norm,
+        datapack.dt,
+    )
+
 class CFFilter:
     def __init__(self, datapack: SampleDataPack, filter_config):
         self.datapack = datapack

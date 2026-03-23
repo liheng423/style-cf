@@ -38,8 +38,10 @@ def build_style_tokens_from_datapack(
     feature_names: Iterable[str],
     embedder: nn.Module,
     seconds: float,
+    window_before_seconds: tuple[float, float] | None = None,
     scaler: object | None = None,
     device: torch.device | None = None,
+    end_step: int | None = None,
 ) -> torch.Tensor:
     """
     Build style tokens from the first `seconds` of each sample in a SampleDataPack.
@@ -51,6 +53,11 @@ def build_style_tokens_from_datapack(
         seconds: number of seconds from the start of each sample to use
         scaler: optional scaler matching training-time style transform
         device: optional device for embedding
+        window_before_seconds: optional (near, far) window in seconds before
+            `end_step` to use, i.e. [end_step-far, end_step-near). When set,
+            it overrides `seconds`.
+        end_step: optional exclusive end index for style window anchor.
+            If None and window_before_seconds is not set, use leading window.
 
     Returns:
         style_tokens: torch.Tensor of shape (N, embed_dim)
@@ -58,11 +65,38 @@ def build_style_tokens_from_datapack(
     if seconds <= 0:
         raise ValueError("seconds must be positive")
 
-    steps = max(1, int(round(seconds / datapack.dt)))
-    steps = min(steps, datapack.data.shape[1])
+    total_steps = int(datapack.data.shape[1])
+    if window_before_seconds is not None:
+        near_s, far_s = window_before_seconds
+        near_s, far_s = min(float(near_s), float(far_s)), max(float(near_s), float(far_s))
+        near_steps = max(1, int(round(near_s / datapack.dt)))
+        far_steps = max(near_steps + 1, int(round(far_s / datapack.dt)))
+
+        anchor = total_steps if end_step is None else max(1, min(int(end_step), total_steps))
+        start = anchor - far_steps
+        end = anchor - near_steps
+
+        if start < 0:
+            shift = -start
+            start = 0
+            end = min(total_steps, end + shift)
+        if end <= start:
+            end = min(total_steps, start + 1)
+    else:
+        steps = max(1, int(round(seconds / datapack.dt)))
+        steps = min(steps, total_steps)
+
+        if end_step is None:
+            start = 0
+            end = steps
+        else:
+            end = max(1, min(int(end_step), total_steps))
+            start = max(0, end - steps)
+            if end <= start:
+                end = min(total_steps, start + 1)
 
     feat_indices = [datapack.names[name] for name in feature_names]
-    style_traj = datapack.data[:, :steps, :][:, :, feat_indices]
+    style_traj = datapack.data[:, start:end, :][:, :, feat_indices]
     if scaler is not None:
         style_traj = dataset_utils._transform(scaler, style_traj)
     style_traj_t = torch.tensor(style_traj, dtype=torch.float32)

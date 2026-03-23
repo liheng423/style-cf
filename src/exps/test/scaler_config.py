@@ -12,7 +12,7 @@ def _resolve_scaler_path(test_config: Mapping[str, Any], config_key: str, defaul
     if raw in (None, "", ...):
         raise ValueError(
             f"Missing scaler path in test_config['{config_key}']. "
-            "Please set it in src/exps/config_toml/test.toml."
+            "Please set it in the active testing config."
         )
 
     path = Path(str(raw))

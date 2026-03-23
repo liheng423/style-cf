@@ -46,9 +46,14 @@ class TestTestingPipeline(unittest.TestCase):
                     self.testing_module.DEFAULT_TEST_WINDOW,
                 )
             ),
+            use_split_windows=bool(self.testing_module.test_config.get("use_split_windows", True)),
             start_time=int(self.testing_module.test_config.get("start_time", 60)),
             style_token_seconds=float(self.testing_module.test_config.get("style_token_seconds", 6.0)),
+            style_window_before_seconds=tuple(
+                self.testing_module.test_config.get("style_window_before_seconds", (20.0, 30.0))
+            ),
             style_token_mode=str(self.testing_module.test_config.get("style_token_mode", "per_sample")),
+            style_token_source=str(self.testing_module.test_config.get("style_token_source", "style_window_head")),
             output_dir=Path("models/test_results_unittest"),
             enabled_models=model_names,
             save_results=False,

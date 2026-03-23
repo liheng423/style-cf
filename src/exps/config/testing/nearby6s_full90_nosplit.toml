@@ -1,0 +1,6 @@
+[test_config]
+style_token_seconds = 6.0
+style_token_source = "nearby_before_start"
+use_split_windows = false
+test_window = [0, 900]
+output_dir = "models/test_results/nearby6s_full90_nosplit"

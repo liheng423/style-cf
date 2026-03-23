@@ -1,10 +1,25 @@
+from __future__ import annotations
 
-import time
-from functools import wraps
+import logging
 from typing import Any
-from logging import getLogger
 
-logger = getLogger(__name__)
+
+def _build_default_logger() -> logging.Logger:
+    logger = logging.getLogger("stylecf")
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter(
+            fmt="%(asctime)s | %(levelname)s | %(message)s",
+            datefmt="%H:%M:%S",
+        )
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    return logger
+
+
+logger = _build_default_logger()
 
 
 def get_with_warn(payload: dict, key: str, default) -> Any:

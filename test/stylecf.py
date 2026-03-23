@@ -32,7 +32,7 @@ class TestStyleAgent(unittest.TestCase):
         d_filters = [lambda: np.ones(d.data.shape[0], dtype=bool)]
         d_filter_config = {}
 
-        result, _, _, _ = build_style_loader(d, d_filters, d_filter_config, data_config=style_data_config)
+        result, _, _, _, _ = build_style_loader(d, d_filters, d_filter_config, data_config=style_data_config)
 
         self.assertIn(CF.TIME, result.names)
         self.assertIn(CF.REACT, result.names)
@@ -44,7 +44,7 @@ class TestStyleAgent(unittest.TestCase):
         d_filters = [lambda: np.ones(d.data.shape[0], dtype=bool)]
         d_filter_config = {}
 
-        _, train_loader, _, _ = build_style_loader(
+        _, train_loader, _, _, _ = build_style_loader(
             d, d_filters, d_filter_config, data_config=style_data_config
         )
 
@@ -67,11 +67,17 @@ class TestStyleAgent(unittest.TestCase):
         d_filters = [lambda: np.ones(d.data.shape[0], dtype=bool)]
         d_filter_config = {}
 
-        _, train_loader, test_loader, _ = build_style_loader(
+        _, train_loader, val_loader, test_loader, _ = build_style_loader(
             d, d_filters, d_filter_config, data_config=style_data_config
         )
 
 
-        model = train_stylecf(style_data_config, style_train_config, train_loader, test_loader)
+        model = train_stylecf(
+            style_data_config,
+            style_train_config,
+            train_loader,
+            val_loader=val_loader,
+            test_loader=test_loader,
+        )
         self.assertIsInstance(model, StyleTransformer)
     

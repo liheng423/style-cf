@@ -63,3 +63,18 @@ Testing and evaluation config:
 2. Keep symbols consistent with loader maps in `src/utils/config_utils.py`
 3. Run baseline train/test
 4. Add env overrides only when needed
+
+## Platoon Simulation Configs
+
+Platoon simulation configs live under `src/platoon/config/`:
+
+- `active.toml`: selects active experiment file (e.g. `baseline`)
+- `default_configs/simulation.toml`: dataset/model/runtime and token-bank setup
+- `default_configs/newell.toml`: Newell initialization parameters
+- `default_configs/evaluation.toml`: wave/fd/fuel evaluation parameters
+- `default_configs/experiments.toml`: group definitions (`fixed` or `mix`)
+- `<name>.toml`: per-experiment overrides merged on top of defaults
+
+Run with:
+
+- `python platoon_simulation.py`

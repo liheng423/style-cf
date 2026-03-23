@@ -29,8 +29,11 @@ from .exps.test.scaler_config import load_test_scalers
 from .exps.test.testing_utils import (
     build_test_traj_builder,
 )
+from .exps.utils.datapack import SampleDataPack
+from .exps.utils.split_io import load_split_indices
 from .exps.test.visualizer import plot_error_evolution, plot_metric_histograms
 from .exps.utils.utils import load_zen_data
+from .utils.logger import logger
 
 
 def _resolve_rollout_start_time(
@@ -74,13 +77,19 @@ class TestingOptions:
     head: int | None
     style_window: tuple[int, int]
     test_window: tuple[int, int]
+    use_split_windows: bool
     start_time: int
     style_token_seconds: float
+    style_window_before_seconds: tuple[float, float] | None
     style_token_mode: str
+    style_token_source: str
     output_dir: Path
     enabled_models: tuple[str, ...]
     save_results: bool
     plot_results: bool
+    use_saved_split: bool = False
+    split_index_path: str | None = None
+    split_strict: bool = False
 
 
 @dataclass
@@ -90,6 +99,54 @@ class EvalBundle:
     style_scalers: dict[str, object]
     transformer_scalers: dict[str, object]
     lstm_scalers: dict[str, object]
+
+
+def _apply_saved_test_split(
+    d_full,
+    split_index_path: str | None,
+    strict: bool,
+):
+    if not split_index_path:
+        return d_full
+
+    path = Path(str(split_index_path))
+    if not path.exists():
+        msg = f"Saved split file not found: {path}"
+        if strict:
+            raise FileNotFoundError(msg)
+        logger.warning(msg + " | fallback to full filtered dataset.")
+        return d_full
+
+    payload = load_split_indices(path)
+    if "test_idx" not in payload:
+        raise KeyError(f"Split file missing 'test_idx': {path}")
+    test_idx = payload["test_idx"]
+
+    total = int(d_full.data.shape[0])
+    if test_idx.ndim != 1:
+        raise ValueError(f"test_idx must be 1D, got shape {tuple(test_idx.shape)}")
+    if test_idx.size == 0:
+        raise ValueError(f"test_idx is empty in split file: {path}")
+    if (test_idx < 0).any() or (test_idx >= total).any():
+        raise ValueError(
+            f"test_idx out of range for filtered dataset size {total}. "
+            "Ensure testing uses the same filtering config as training."
+        )
+
+    data = d_full.data[test_idx]
+    d_test = SampleDataPack(
+        data=data,
+        name_dict=d_full.names.copy(),
+        rise=d_full.rise,
+        kph=d_full.kph,
+        kilo_norm=d_full.kilo_norm,
+        dt=d_full.dt,
+    )
+    logger.info(
+        f"Applied saved test split from {path} | "
+        f"test_samples={int(test_idx.size)} filtered_total={total}"
+    )
+    return d_test
 
 
 def _resolve_device() -> torch.device:
@@ -122,7 +179,19 @@ def _build_options() -> TestingOptions:
     test_window = tuple(test_config.get("test_window", DEFAULT_TEST_WINDOW))
 
     style_token_seconds = float(test_config.get("style_token_seconds", 6.0))
+    raw_before = test_config.get("style_window_before_seconds")
+    style_window_before_seconds: tuple[float, float] | None
+    if isinstance(raw_before, (list, tuple)) and len(raw_before) == 2:
+        style_window_before_seconds = (float(raw_before[0]), float(raw_before[1]))
+    else:
+        style_window_before_seconds = None
     style_token_mode = str(test_config.get("style_token_mode", "per_sample"))
+    style_token_source = str(test_config.get("style_token_source", "style_window_head"))
+    use_split_windows = bool(test_config.get("use_split_windows", True))
+    use_saved_split = bool(test_config.get("use_saved_split", False))
+    split_index_path_raw = test_config.get("split_index_path")
+    split_index_path = None if split_index_path_raw in (None, "", ...) else str(split_index_path_raw)
+    split_strict = bool(test_config.get("saved_split_strict", False))
     start_time = int(test_config.get("start_time", 60))
 
     models_cfg = test_config.get("enabled_models")
@@ -146,9 +215,15 @@ def _build_options() -> TestingOptions:
         head=head,
         style_window=cast(tuple[int, int], style_window),
         test_window=cast(tuple[int, int], test_window),
+        use_split_windows=use_split_windows,
         start_time=start_time,
         style_token_seconds=style_token_seconds,
+        style_window_before_seconds=style_window_before_seconds,
         style_token_mode=style_token_mode,
+        style_token_source=style_token_source,
+        use_saved_split=use_saved_split,
+        split_index_path=split_index_path,
+        split_strict=split_strict,
         output_dir=output_dir,
         enabled_models=cast(tuple[str, ...], enabled_models),
         save_results=bool(test_config.get("save_results", True)),
@@ -160,10 +235,33 @@ def _build_eval_bundle(
     head: int | None = None,
     style_window: tuple[int, int] = DEFAULT_STYLE_WINDOW,
     test_window: tuple[int, int] = DEFAULT_TEST_WINDOW,
+    use_split_windows: bool = True,
+    use_saved_split: bool = False,
+    split_index_path: str | None = None,
+    split_strict: bool = False,
 ) -> EvalBundle:
     raw_data = _dataset(head=head)
     d_full = build_style_datapack(raw_data, filter_names, data_filter_config)
-    d_style, d_test = split_eval_windows(d_full, style_window, test_window)
+    if use_saved_split:
+        d_full = _apply_saved_test_split(
+            d_full,
+            split_index_path=split_index_path,
+            strict=split_strict,
+        )
+    if use_split_windows:
+        d_style, d_test = split_eval_windows(d_full, style_window, test_window)
+    else:
+        total_steps = int(d_full.data.shape[1])
+        test_start, test_end = test_window
+        if not (0 <= test_start < test_end <= total_steps):
+            raise ValueError(
+                f"test_window={test_window} is invalid for sequence length {total_steps}. "
+                "Update test_config['test_window']."
+            )
+        d_test = d_full.split_by_time_windows_list([test_window])[0]
+        # Keep style datapack available for compatibility with style_window_head mode.
+        d_style = d_test
+
     style_scalers, transformer_scalers, lstm_scalers = load_test_scalers(
         test_config,
         style_data_config["x_groups"],
@@ -186,12 +284,23 @@ def run_testing(options: TestingOptions | None = None) -> dict[str, ModelEvalRes
         head=options.head,
         style_window=options.style_window,
         test_window=options.test_window,
+        use_split_windows=options.use_split_windows,
+        use_saved_split=options.use_saved_split,
+        split_index_path=options.split_index_path,
+        split_strict=options.split_strict,
     )
     d_style = eval_bundle.d_style
     d_test = eval_bundle.d_test
 
     num_samples = d_test.data.shape[0]
     build_traj = build_test_traj_builder(d_test, device)
+
+    style_token_anchor_step = _resolve_rollout_start_time(
+        requested_start=options.start_time,
+        total_steps=int(d_test.data.shape[1]),
+        historic_step=int(style_data_config["seq_len"]),
+        rollout_step=int(style_data_config["pred_len"]),
+    )
 
     results: dict[str, ModelEvalResult] = {}
     context = BuilderContext(
@@ -202,7 +311,10 @@ def run_testing(options: TestingOptions | None = None) -> dict[str, ModelEvalRes
         transformer_scalers=eval_bundle.transformer_scalers,
         lstm_scalers=eval_bundle.lstm_scalers,
         style_token_seconds=options.style_token_seconds,
+        style_window_before_seconds=options.style_window_before_seconds,
         style_token_mode=options.style_token_mode,
+        style_token_source=options.style_token_source,
+        style_token_anchor_step=style_token_anchor_step,
     )
 
     builders = get_model_builders()

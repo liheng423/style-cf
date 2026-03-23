@@ -1,5 +1,5 @@
 [test_config]
-datapath = 'F:\DATA\ZenTraffic\ZenTraffic90kalman_new.npy'
+datapath = "data/data/Zentraffic90"
 device = "cpu"
 idm_state = [24.68, 1.67, 1.37, 1.68, 2.46]
 lstm_state_path = "data/saved_models/lstm.pth"
@@ -10,13 +10,18 @@ transformer_num_decoder_layers = 1
 style_scaler_path = "data/saved_scalers/scaler_stylecf.pkl"
 transformer_scaler_path = "data/saved_scalers/scaler_transfollower.pkl"
 lstm_scaler_path = "data/saved_scalers/scaler_lstm.pkl"
-style_token_seconds = 6.0
+use_saved_split = true
+split_index_path = "data/saved_splits/stylecf_group_split.npz"
+saved_split_strict = false
+style_token_seconds = 30.0
+style_window_before_seconds = [20.0, 30.0]
 style_token_mode = "per_sample"
+style_token_source = "nearby_before_start"
 style_dummy_seed = 42
 style_shuffle_seed = 42
 style_window = [0, 300]
 test_window = [300, 900]
-enabled_models = ["stylecf_global", "stylecf_shuffle"]
+enabled_models = ["stylecf"]
 
 [test_config.style_agent]
 model = "StyleTransformer"

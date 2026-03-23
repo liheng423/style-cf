@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Mapping, cast
 
 import torch
+import torch.nn.functional as F
 from tensordict import TensorDict
 
 from ..datahandle import dataset as dataset_utils
@@ -98,18 +99,39 @@ def build_style_tokens(
     style_model: StyleTransformer,
     style_feature_names: list[str],
     style_token_seconds: float,
+    style_window_before_seconds: tuple[float, float] | None,
     style_token_mode: str,
+    style_token_source: str,
+    style_token_anchor_step: int | None,
     style_scaler: object | None,
     device: torch.device,
 ):
-    style_tokens = build_style_tokens_from_datapack(
-        d_style,
-        style_feature_names,
-        style_model.embedder,
-        seconds=style_token_seconds,
-        scaler=style_scaler,
-        device=device,
-    )
+    if style_token_source == "style_window_head":
+        style_tokens = build_style_tokens_from_datapack(
+            d_style,
+            style_feature_names,
+            style_model.embedder,
+            seconds=style_token_seconds,
+            window_before_seconds=None,
+            scaler=style_scaler,
+            device=device,
+        )
+    elif style_token_source == "nearby_before_start":
+        style_tokens = build_style_tokens_from_datapack(
+            d_test,
+            style_feature_names,
+            style_model.embedder,
+            seconds=style_token_seconds,
+            window_before_seconds=style_window_before_seconds,
+            scaler=style_scaler,
+            device=device,
+            end_step=style_token_anchor_step,
+        )
+    else:
+        raise ValueError(
+            "Unsupported style_token_source: "
+            f"{style_token_source}. Expected 'style_window_head' or 'nearby_before_start'."
+        )
 
     if style_token_mode == "global_center":
         center = style_tokens.mean(dim=0, keepdim=True)
@@ -128,6 +150,9 @@ def build_dummy_style_tokens(
     device: torch.device,
     seed: int | None = 42,
 ):
+    def _normalize_rows(tokens: torch.Tensor) -> torch.Tensor:
+        return F.normalize(tokens, p=2, dim=1, eps=1e-12)
+
     num_samples = int(d_test.data.shape[0])
 
     if seed is None:
@@ -139,7 +164,9 @@ def build_dummy_style_tokens(
 
     if style_token_mode == "global_center":
         center = style_tokens.mean(dim=0, keepdim=True)
-        style_tokens = center.repeat(num_samples, 1)
+        style_tokens = _normalize_rows(center).repeat(num_samples, 1)
+    else:
+        style_tokens = _normalize_rows(style_tokens)
 
     return style_tokens
 

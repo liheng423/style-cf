@@ -181,6 +181,7 @@ class StyleTransformer(nn.Module, StyleModel):
                                                 num_encoder_layers=num_enc_layers,
                                                 num_decoder_layers=num_dec_layers)
         self.use_dummy_style = False
+        self.dummy_style_mode = "zeros"
         self.embed_dim = embed_dim
 
     def forward(self, x: TensorDict):
@@ -202,7 +203,10 @@ class StyleTransformer(nn.Module, StyleModel):
 
         # Some experiments swap in a random style vector to ablate conditioning.
         if self.use_dummy_style:
-            d_style = torch.randn(B, self.embed_dim, device=enc_inp.device)  # Dummy random vector
+            if self.dummy_style_mode == "random":
+                d_style = torch.randn(B, self.embed_dim, device=enc_inp.device)
+            else:
+                d_style = torch.zeros(B, self.embed_dim, device=enc_inp.device)
         else:
             d_style = self.embedder(style)  # Use real style embedding
 

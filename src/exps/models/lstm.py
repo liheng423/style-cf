@@ -226,6 +226,7 @@ def lstm_update_func(simulator: Agent, feature_dict: dict[str, List[str]]):
             x_series_scaled = x_series_scaled.refine_names(*x_names)
 
         out = {FEAT.INPUTS: x_series_scaled}
-        return SliceableTensorDict(out, batch_size=train_series.batch_size, names=train_series.names)
+        td_cls = type(train_series)
+        return td_cls(out, batch_size=train_series.batch_size, names=train_series.names)
     
     return _update_train_series

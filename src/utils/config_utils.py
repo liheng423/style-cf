@@ -16,7 +16,7 @@ except ModuleNotFoundError:  # Python < 3.11
 
 from ..exps.datahandle.dataset import LSTMDataset, StyledTransfollowerDataset
 from ..exps.datahandle.datascalers import DataScaler
-from ..exps.loss import IDMLoss, StyleLoss
+from ..exps.losses import IDMLoss, LossWeights, StyleMultiTaskLoss
 from ..exps.models.idm import DEFAULT_MASK, DEFAULT_PRED_FUNC, IDM, idm_concat, idm_update_func
 from ..exps.models.lstm import CF_LSTM, lstm_update_func
 from ..exps.models.stylecf import StyleTransformer, style_update_func, stylecf_mask, transformer_mask
@@ -25,14 +25,64 @@ from ..exps.utils.utils import stack_name
 from ..schema import CFNAMES as CF
 
 
-_CONFIG_DIR = Path(__file__).resolve().parents[1] / "exps" / "config_toml"
+_CONFIG_DIR = Path(__file__).resolve().parents[1] / "exps" / "config" / "default_configs"
+_TESTING_CONFIG_DIR = Path(__file__).resolve().parents[1] / "exps" / "config" / "testing"
 _CACHE: dict[str, Any] | None = None
 
 
-def _load_toml(name: str) -> dict[str, Any]:
-    path = _CONFIG_DIR / name
+def _load_toml_path(path: Path) -> dict[str, Any]:
     with path.open("rb") as f:
         return tomllib.load(f)
+
+
+def _load_toml(name: str) -> dict[str, Any]:
+    return _load_toml_path(_CONFIG_DIR / name)
+
+
+def _deep_merge_dict(base: Mapping[str, Any], override: Mapping[str, Any]) -> dict[str, Any]:
+    merged: dict[str, Any] = dict(base)
+    for key, value in override.items():
+        existing = merged.get(key)
+        if isinstance(existing, Mapping) and isinstance(value, Mapping):
+            merged[key] = _deep_merge_dict(existing, value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _load_test_toml() -> dict[str, Any]:
+    """
+    Load testing config from experiment selector when available.
+
+    Priority:
+    1) src/exps/config/testing/active.toml -> selected experiment file
+    2) merge selected experiment overrides onto src/exps/config/default_configs/test.toml
+    3) fallback to src/exps/config/default_configs/test.toml
+    """
+    base_payload = _load_toml("test.toml")
+
+    active_path = _TESTING_CONFIG_DIR / "active.toml"
+    if active_path.exists():
+        try:
+            active_payload = _load_toml_path(active_path)
+            testing = active_payload.get("testing", {})
+            active_name = testing.get("active") if isinstance(testing, Mapping) else None
+            if isinstance(active_name, str) and active_name.strip():
+                filename = active_name.strip()
+                if not filename.lower().endswith(".toml"):
+                    filename = f"{filename}.toml"
+                # Keep experiment selection within testing config directory.
+                filename = Path(filename).name
+                exp_path = _TESTING_CONFIG_DIR / filename
+                if exp_path.exists():
+                    exp_payload = _load_toml_path(exp_path)
+                    if "test_config" in exp_payload and isinstance(exp_payload["test_config"], Mapping):
+                        return _deep_merge_dict(base_payload, exp_payload)
+        except Exception:
+            # Fall back to legacy config path on any active-config parsing issue.
+            pass
+
+    return base_payload
 
 
 def _feature_name(name: str) -> str:
@@ -153,10 +203,25 @@ def _build_train_config(
     template = str(train_raw.get("best_model_path_template", "models/best-model-{timestamp}.pth"))
     best_model_path = template.replace("{timestamp}", timestamp)
 
-    loss_name = str(train_raw.get("loss_func", "StyleLoss.acc_spacing_mse"))
-    if loss_name != "StyleLoss.acc_spacing_mse":
-        raise ValueError(f"Unsupported style loss definition: {loss_name}")
-    loss_func = StyleLoss(style_data_config["y_groups"]["y_seq"]["features"]).acc_spacing_mse
+    loss_name = str(train_raw.get("loss_func", "StyleMultiTaskLoss.default"))
+    y_features = style_data_config["y_groups"]["y_seq"]["features"]
+
+    # Backward-compatible alias:
+    # "StyleLoss.acc_spacing_mse" -> spacing-only objective.
+    if loss_name == "StyleLoss.acc_spacing_mse":
+        default_weights = LossWeights(spacing=1.0, acc=0.0, contrastive=0.0)
+    else:
+        default_weights = LossWeights(
+            spacing=float(train_raw.get("w_spacing", 1.0)),
+            acc=float(train_raw.get("w_acc", 0.3)),
+            contrastive=float(train_raw.get("w_contrastive", 0.1)),
+        )
+
+    loss_func = StyleMultiTaskLoss(
+        y_features=y_features,
+        default_weights=default_weights,
+        contrastive_temperature=float(train_raw.get("contrastive_temperature", 0.2)),
+    )
 
     optim_name = str(train_raw.get("optim", "Adam"))
     optim_func = _resolve_symbol(optim_name, maps["optimizer"], "optimizer")
@@ -165,6 +230,7 @@ def _build_train_config(
     style_train_config["device"] = device
     style_train_config["best_model_path"] = best_model_path
     style_train_config["loss_func"] = loss_func
+    style_train_config["loss_name"] = loss_name
     style_train_config["optim"] = optim_func
     style_train_config.pop("best_model_path_template", None)
 
@@ -230,7 +296,7 @@ def _build_test_config(raw: dict[str, Any], maps: dict[str, dict[str, Any]]) -> 
     test_raw = dict(raw["test_config"])
     test_config = dict(test_raw)
 
-    for window_key in ("style_window", "test_window"):
+    for window_key in ("style_window", "test_window", "style_window_before_seconds"):
         if window_key in test_config:
             test_config[window_key] = tuple(test_config[window_key])
 
@@ -254,7 +320,7 @@ def _build_bundle() -> dict[str, Any]:
     data_raw = _load_toml("datahandle.toml")
     train_raw = _load_toml("train.toml")
     model_raw = _load_toml("models.toml")
-    test_raw = _load_toml("test.toml")
+    test_raw = _load_test_toml()
 
     data_cfg = _build_datahandle_config(data_raw, maps)
     train_cfg = _build_train_config(train_raw, maps, data_cfg["style_data_config"])
@@ -287,4 +353,3 @@ def get_exps_config(name: str, force_reload: bool = False) -> Any:
     if name not in cfg:
         raise KeyError(f"Unknown config key: {name}")
     return cfg[name]
-
