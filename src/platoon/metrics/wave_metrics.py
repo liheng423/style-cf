@@ -147,3 +147,88 @@ class Wave:
         avg_veh_speed = np.mean(veh_speeds)
 
         return avg_wave_speed, avg_veh_speed
+
+
+class AmpFactor:
+    @staticmethod
+    def _local_median(arr_1d: np.ndarray, center_idx: int, halfw: int) -> float:
+        n = arr_1d.shape[0]
+        if n == 0:
+            return np.nan
+        left = max(0, center_idx - halfw)
+        right = min(n - 1, center_idx + halfw)
+        if left > right:
+            return np.nan
+        seg = arr_1d[left : right + 1]
+        return float(np.median(seg)) if seg.size > 0 else np.nan
+
+    @staticmethod
+    def calc_amp_factor(
+        movements: np.ndarray,
+        wave_chain: np.ndarray,
+        time_shift: float,
+        dt: float = 0.1,
+        flank_window_s: float = 0.5,
+        tiny: float = 1e-2,
+    ) -> np.ndarray:
+        """
+        Return one row:
+        [wave_id, veh_leader, t_leader, veh_tail, t_tail, dv_leader, dv_tail, amp_factor]
+        """
+        if movements.ndim != 3 or movements.shape[2] < 2:
+            raise ValueError("movements must have shape (num_veh, num_time, >=2)")
+        if wave_chain.ndim != 2 or wave_chain.shape[1] < 8:
+            raise ValueError("wave_chain must follow [wave_id, from, to, t_lead, t_foll, dx, dt, wave_speed]")
+
+        speed = movements[:, :, 1]
+        _, total_t = speed.shape
+        shift_idx = int(round(time_shift / dt))
+        halfw = max(0, int(round((flank_window_s / dt) / 2)))
+
+        def clip_idx(idx: int) -> int:
+            return int(np.clip(idx, 0, total_t - 1))
+
+        rows = wave_chain[np.argsort(wave_chain[:, 3])]
+        wave_id = int(rows[0, 0])
+
+        veh_leader = int(rows[0, 1])
+        t_leader_idx = int(round(rows[0, 3] / dt))
+        veh_tail = int(rows[-1, 2])
+        t_tail_idx = int(round(rows[-1, 4] / dt))
+
+        if veh_leader < 0 or veh_tail < 0 or veh_leader >= speed.shape[0] or veh_tail >= speed.shape[0]:
+            return np.empty((0, 8), dtype=float)
+
+        t_lb = clip_idx(t_leader_idx - shift_idx)
+        t_la = clip_idx(t_leader_idx + shift_idx)
+        t_tb = clip_idx(t_tail_idx - shift_idx)
+        t_ta = clip_idx(t_tail_idx + shift_idx)
+
+        v_lb = AmpFactor._local_median(speed[veh_leader], t_lb, halfw)
+        v_la = AmpFactor._local_median(speed[veh_leader], t_la, halfw)
+        v_tb = AmpFactor._local_median(speed[veh_tail], t_tb, halfw)
+        v_ta = AmpFactor._local_median(speed[veh_tail], t_ta, halfw)
+
+        dv_leader = float(v_lb - v_la) if np.isfinite(v_lb) and np.isfinite(v_la) else np.nan
+        dv_tail = float(v_tb - v_ta) if np.isfinite(v_tb) and np.isfinite(v_ta) else np.nan
+
+        amp = np.nan
+        if np.isfinite(dv_leader) and np.isfinite(dv_tail) and abs(dv_leader) > tiny:
+            if np.sign(dv_leader) == np.sign(dv_tail):
+                amp = abs(dv_tail) / abs(dv_leader)
+
+        return np.array(
+            [
+                [
+                    float(wave_id),
+                    float(veh_leader),
+                    float(rows[0, 3]),
+                    float(veh_tail),
+                    float(rows[-1, 4]),
+                    dv_leader,
+                    dv_tail,
+                    amp,
+                ]
+            ],
+            dtype=float,
+        )

@@ -1,0 +1,6 @@
+[newell_config]
+freeflow_spd = 22.0
+reaction_time = 1.5
+min_spacing = 2.0
+veh_length = 5.0
+init_spacing = 40.0

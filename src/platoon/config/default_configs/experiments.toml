@@ -1,0 +1,23 @@
+[experiments]
+enabled_groups = ["plat1", "plat2", "plat3", "plat4"]
+
+[experiments.groups.plat1]
+mode = "fixed"
+composition = { P0 = 16 }
+
+[experiments.groups.plat2]
+mode = "fixed"
+composition = { P1 = 16 }
+
+[experiments.groups.plat3]
+mode = "fixed"
+composition = { P2 = 16 }
+
+[experiments.groups.plat4]
+mode = "fixed"
+composition = { P3 = 16 }
+
+[experiments.groups.mix_p0_p2_2575]
+mode = "mix"
+distribution = { P0 = 0.25, P2 = 0.75 }
+platoon_len = 16

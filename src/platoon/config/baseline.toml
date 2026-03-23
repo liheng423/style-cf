@@ -1,0 +1,7 @@
+[simulation_config]
+output_dir = "models/platoon_results/baseline"
+repetitions = 5
+leader_ids = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+[experiments]
+enabled_groups = ["plat1", "plat2", "plat3", "plat4"]

@@ -1,0 +1,37 @@
+[simulation_config]
+datapath = "F:\\DATA\\ZenTraffic\\ZenTraffic90kalman_new.npy"
+device = "cpu"
+head = 500
+dt = 0.1
+sim_time = 240.0
+pred_duration = 4.0
+hist_duration = 6.0
+style_window = [0, 300]
+test_window = [300, 900]
+use_run_until_exit = false
+exit_range = [-1000.0, 1200.0]
+leader_ids = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+repetitions = 5
+output_dir = "models/platoon_results/baseline"
+save_raw = true
+random_seed = 42
+
+style_state_path = "data/saved_models/stylecf.pth"
+style_scaler_path = "data/saved_scalers/scaler_stylecf.pkl"
+style_token_seconds = 30.0
+style_token_source = "style_window_head"
+style_token_anchor_step = 60
+
+[simulation_config.notruck_bank]
+enabled = true
+prefix = "P"
+num_clusters = 4
+length_threshold = 7.5
+fallback_label = "P0"
+
+[simulation_config.truck_bank]
+enabled = true
+prefix = "T"
+num_clusters = 3
+length_threshold = 7.5
+fallback_to_notruck = true

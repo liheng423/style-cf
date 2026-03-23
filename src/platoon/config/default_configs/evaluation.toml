@@ -1,0 +1,14 @@
+[evaluation_config]
+offset = 700.0
+speed_threshold = 1.0
+wave_speed_floor = -10.0
+wave_min_chain_points = 5
+wave_tracking_tolerance = 5.0
+wave_lookahead_factor = 40.0
+amp_time_shift = 1.0
+
+fd_wave_speed_kmh = -16.0
+fd_t_start = 25.0
+fd_t_end = 220.0
+fd_t_step = 8.0
+fd_t_length = 5.0
