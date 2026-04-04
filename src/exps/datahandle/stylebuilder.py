@@ -4,7 +4,8 @@ import torch
 import torch.nn as nn
 from typing import Iterable
 
-from . import dataset as dataset_utils
+from . import datasets as dataset_utils
+from ...utils.logger import logger
 from ..utils.utils import SampleDataPack
 
 
@@ -42,6 +43,8 @@ def build_style_tokens_from_datapack(
     scaler: object | None = None,
     device: torch.device | None = None,
     end_step: int | None = None,
+    batch_size: int | None = None,
+    log_every_batches: int | None = None,
 ) -> torch.Tensor:
     """
     Build style tokens from the first `seconds` of each sample in a SampleDataPack.
@@ -96,12 +99,45 @@ def build_style_tokens_from_datapack(
                 end = min(total_steps, start + 1)
 
     feat_indices = [datapack.names[name] for name in feature_names]
-    style_traj = datapack.data[:, start:end, :][:, :, feat_indices]
-    if scaler is not None:
-        style_traj = dataset_utils._transform(scaler, style_traj)
-    style_traj_t = torch.tensor(style_traj, dtype=torch.float32)
-    if device is not None:
-        style_traj_t = style_traj_t.to(device)
+    num_samples = int(datapack.data.shape[0])
+    effective_batch_size = int(batch_size or num_samples)
+    if effective_batch_size <= 0:
+        raise ValueError("batch_size must be positive")
 
-    with torch.no_grad():
-        return build_style(style_traj_t, embedder)
+    effective_log_every = int(log_every_batches or 0)
+    num_batches = (num_samples + effective_batch_size - 1) // effective_batch_size
+    outputs: list[torch.Tensor] = []
+
+    was_training = bool(embedder.training)
+    embedder.eval()
+    logger.info(
+        "Build style embeddings | "
+        f"samples={num_samples} window=({start}, {end}) features={len(feat_indices)} "
+        f"batch_size={effective_batch_size} batches={num_batches}"
+    )
+
+    try:
+        with torch.inference_mode():
+            for batch_idx, batch_start in enumerate(range(0, num_samples, effective_batch_size), start=1):
+                batch_end = min(batch_start + effective_batch_size, num_samples)
+                style_traj = datapack.data[batch_start:batch_end, start:end, :][:, :, feat_indices]
+                if scaler is not None:
+                    style_traj = dataset_utils._transform(scaler, style_traj)
+
+                style_traj_t = torch.tensor(style_traj, dtype=torch.float32)
+                if device is not None:
+                    style_traj_t = style_traj_t.to(device)
+
+                style_token = build_style(style_traj_t, embedder).detach().cpu()
+                outputs.append(style_token)
+
+                if effective_log_every > 0 and (batch_idx == 1 or batch_idx % effective_log_every == 0 or batch_idx == num_batches):
+                    logger.info(
+                        "Build style embeddings batch | "
+                        f"{batch_idx}/{num_batches} samples={batch_end}/{num_samples}"
+                    )
+    finally:
+        if was_training:
+            embedder.train()
+
+    return torch.cat(outputs, dim=0)

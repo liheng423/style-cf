@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Mapping, cast
 
@@ -13,7 +14,9 @@ from .exps.configs import (
     DEFAULT_TEST_WINDOW,
     data_filter_config,
     filter_names,
+    idm_calibration_config,
     lstm_data_config,
+    lstm_model_config,
     test_config,
     style_data_config,
 )
@@ -32,8 +35,13 @@ from .exps.test.testing_utils import (
 from .exps.utils.datapack import SampleDataPack
 from .exps.utils.split_io import load_split_indices
 from .exps.test.visualizer import plot_error_evolution, plot_metric_histograms
-from .exps.utils.utils import load_zen_data
+from .utils.rawdata_loader import load_datapack
 from .utils.logger import logger
+
+
+def _with_timestamp_subdir(base_dir: Path) -> Path:
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return base_dir / timestamp
 
 
 def _resolve_rollout_start_time(
@@ -156,18 +164,11 @@ def _resolve_device() -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def _resolve_data_path() -> str:
-    env_path = os.environ.get("ZEN_DATA_PATH")
-    path = env_path or test_config.get("datapath")
-    if not path:
-        raise ValueError("Dataset path is missing. Set ZEN_DATA_PATH or test_config['datapath']")
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"Dataset not found: {path}")
-    return path
-
-
 def _dataset(head: int | None = None):
-    d = load_zen_data(_resolve_data_path(), rise=True, in_kph=False, kilo_norm=True)
+    rawdata_name = test_config.get("rawdata_config", test_config.get("datacfg"))
+    if rawdata_name in (None, "", ...):
+        raise ValueError("Missing test_config['rawdata_config'] (legacy key 'datacfg' is also empty).")
+    d, _, _ = load_datapack(str(rawdata_name))
     return d.head(head) if head is not None else d
 
 
@@ -203,7 +204,7 @@ def _build_options() -> TestingOptions:
             enabled_models.append("lstm")
         enabled_models = tuple(enabled_models)
 
-    output_dir = Path(str(test_config.get("output_dir", "models/test_results")))
+    output_dir = _with_timestamp_subdir(Path(str(test_config.get("output_dir", "models/test_results"))))
 
     plot_env = os.environ.get("TEST_PLOT")
     if plot_env is not None:
@@ -315,6 +316,11 @@ def run_testing(options: TestingOptions | None = None) -> dict[str, ModelEvalRes
         style_token_mode=options.style_token_mode,
         style_token_source=options.style_token_source,
         style_token_anchor_step=style_token_anchor_step,
+        test_config=test_config,
+        style_data_config=style_data_config,
+        lstm_data_config=lstm_data_config,
+        lstm_model_config=lstm_model_config,
+        idm_calibration_config=idm_calibration_config,
     )
 
     builders = get_model_builders()

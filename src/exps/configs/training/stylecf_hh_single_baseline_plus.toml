@@ -1,0 +1,34 @@
+[train_entry_config]
+target_model = "stylecf"
+
+[style_train_config]
+best_model_path_template = "models/stylecf-single-plus-{timestamp}.pth"
+training_mode = "single_stage"
+split_index_path = "data/saved_splits/stylecf-hh-tol-2s"
+
+seed = 42
+
+num_epoch = 60
+lr = 0.0003
+stage3_lr = 0.0003
+
+w_spacing = 1.0
+w_acc = 0.35
+w_contrastive = 0.03
+contrastive_temperature = 0.20
+metrics_eval_batches = 20
+max_norm = 8
+
+# Style window controls for style-model training dataloader.
+# style_window_before_seconds unit is seconds: [near_s, far_s] before the selected anchor.
+style_window_before_seconds = [0, 10]
+# style_window_mode:
+# - "before_pred_start": anchor = pred_start = t + seq_len (prediction-window start).
+#   window = [pred_start - far_s, pred_start - near_s)
+# - "before_hist_start": anchor = hist_start = t (encoder-window start).
+#   window = [hist_start - far_s, hist_start - near_s)
+style_window_mode = "before_pred_start"
+# strict_style_window:
+# - true: drop samples whose style window goes out of range
+# - false: clamp style window to valid history
+strict_style_window = true

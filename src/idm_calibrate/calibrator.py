@@ -121,7 +121,7 @@ def calibrate_idm(idm: "IDM", id_datapack: Dict[int, SampleDataPack], config):
 
     dataset_cls = config.get("dataset_cls")
     if dataset_cls is None:
-        from ..exps.datahandle.dataset import IDMDataset as dataset_cls
+        from ..exps.datahandle.datasets import IDMDataset as dataset_cls
     dataloader_cls = config.get("dataloader_cls", DataLoader)
 
     for key in tqdm(sample_keys):

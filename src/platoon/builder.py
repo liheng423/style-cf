@@ -19,7 +19,7 @@ from src.exps.utils.scaler_io import load_scaler_payload
 from src.exps.utils.utils import load_zen_data
 from src.platoon.plat_sim import Env
 from src.schema import CFNAMES as CF
-from src.stylecf.schema import TensorNames
+from src.schema import TensorNames
 
 from .token_bank import TokenBank, build_style_token_bank
 

@@ -1,0 +1,19 @@
+[train_entry_config]
+target_model = "stylecf"
+
+[style_train_config]
+best_model_path_template = "models/best-model-{timestamp}.pth"
+training_mode = "three_stage"
+w_contrastive = 0.1
+metrics_eval_batches = 10
+
+stage1_epochs = 12
+stage2_epochs = 10
+stage3_epochs = 18
+stage1_lr = 0.0005
+stage2_lr = 0.0003
+stage3_lr = 0.0001
+stage2_objective = "contrastive"
+
+[style_train_config.logger]
+mode = "normal"

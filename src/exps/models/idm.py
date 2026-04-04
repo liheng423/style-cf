@@ -5,8 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ..utils.utils import SliceableTensorDict, stack_name, td_cat
-from ...schema import CFNAMES as CF
-from ...stylecf.schema import TensorNames
+from ...schema import CFNAMES as CF, TensorNames
 
 
 

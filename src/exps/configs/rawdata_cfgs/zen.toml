@@ -1,0 +1,7 @@
+[rawdata]
+extractor = "zen"
+datapath = "data/data/Zentraffic90"
+rise = true
+in_kph = false
+kilo_norm = true
+

@@ -1,0 +1,23 @@
+[train_entry_config]
+target_model = "stylecf"
+
+[style_train_config]
+best_model_path_template = "models/stylecf-s3-generalize-{timestamp}.pth"
+training_mode = "three_stage"
+seed = 3407
+
+w_spacing = 1.0
+w_acc = 0.40
+w_contrastive = 0.05
+contrastive_temperature = 0.20
+metrics_eval_batches = 20
+max_norm = 7
+
+stage1_epochs = 8
+stage2_epochs = 8
+stage3_epochs = 28
+stage1_lr = 0.0004
+stage2_lr = 0.00025
+stage3_lr = 0.00007
+stage2_objective = "contrastive"
+

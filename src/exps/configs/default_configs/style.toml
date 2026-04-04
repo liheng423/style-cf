@@ -1,0 +1,66 @@
+[style_pipeline_config]
+device = "cpu"
+style_state_path = "models/stylecf-single-plus-hh-20260326-190841.pth"
+rawdata_config = "hh_h5_list.toml"
+split_index_path = "data/saved_splits/stylecf_group_split-tol-2s"
+output_dir = "models/style_results"
+split_partition = "all"
+use_split_windows = false
+
+# Embedding clustering
+random_seed = 42
+lead_length_threshold = 8.0
+truck_clusters = 4
+notruck_clusters = 4
+
+# Transfer evaluation
+# 0 means "use all samples in each cluster" and can be very slow on large datasets.
+# Keep a conservative default for interactive runs; override to 0 for full exhaustive evaluation.
+transfer_max_samples_per_cluster = 128
+kde_xlim = [1.0, 2.5]
+distance_offset = 0.0
+enable_embedding_plots = true
+enable_cluster_transfer = true
+enable_follower_type_transfer = true
+
+# Follower-length substitution
+truck_length_override = 10.0
+passenger_length_override = 5.0
+
+# Single-case trajectory visualization
+save_case_plot = true
+case_cluster = 0
+case_compare_cluster = 1
+case_sample = 0
+slanted_speed = 9.5
+
+
+style_token_source = "full_length"
+style_token_batch_size = 128
+style_token_log_every_batches = 5
+use_full_window = true
+
+[style_pipeline_config.cluster]
+# method: "kmeans" | "gmm" | "hdbscan"
+method = "gmm"
+
+[style_pipeline_config.cluster.kmeans]
+# n_init can be "auto" or integer
+n_init = "auto"
+max_iter = 300
+algorithm = "lloyd"
+
+[style_pipeline_config.cluster.gmm]
+covariance_type = "full"
+n_init = 3
+max_iter = 300
+reg_covar = 1e-6
+
+[style_pipeline_config.cluster.hdbscan]
+min_cluster_size = 64
+# min_samples = "auto" means let HDBSCAN pick default behavior
+min_samples = "auto"
+cluster_selection_method = "eom"
+cluster_selection_epsilon = 0.0
+metric = "euclidean"
+allow_single_cluster = false

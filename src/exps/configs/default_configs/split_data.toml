@@ -1,0 +1,8 @@
+[data_split_config]
+rawdata_config = "hh_h5_list.toml"
+split_base_path = "data/saved_splits/stylecf-hh-tol-2s"
+train_ratio = 0.7
+val_ratio = 0.15
+test_ratio = 0.15
+split_mode = "group_self_id"
+split_seed = 42

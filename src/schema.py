@@ -56,3 +56,12 @@ class CFNAMES:
 @dataclass(frozen=True)
 class FEATNAMES:
     INPUTS = "inputs"
+
+
+@dataclass(frozen=True)
+class TensorNames:
+    T: str = "T"
+    F: str = "F"
+    N: str = "N"
+    B: str = "B"
+    INPUTS: str = "inputs"

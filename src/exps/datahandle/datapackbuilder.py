@@ -1,7 +1,7 @@
 
 from typing import List
 from .filters import CFFilter, filter_min_self_id_samples
-from ..utils.utils import SampleDataPack
+from ..utils.datapack import SampleDataPack
 from ...schema import CFNAMES as CF
 from ...utils.logger import logger
 

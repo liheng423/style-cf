@@ -1,0 +1,23 @@
+# This file is used for dataset partition and handle different time windows 
+
+[stylecf.dataset]
+
+batch_size = 64
+split_mode = "group_self_id"
+# stride unit is sample steps (not seconds).
+# Real time (seconds) = stride * sample_dt.
+stride = 20
+
+# Style window controls for style-model training dataloader.
+# style_window_before_seconds unit is seconds: [near_s, far_s] before the selected anchor.
+style_window_before_seconds = [10, 20]
+# style_window_mode:
+# - "before_pred_start": anchor = pred_start = t + seq_len (prediction-window start).
+#   window = [pred_start - far_s, pred_start - near_s)
+# - "before_hist_start": anchor = hist_start = t (encoder-window start).
+#   window = [hist_start - far_s, hist_start - near_s)
+style_window_mode = "before_hist_start"
+# strict_style_window:
+# - true: drop samples whose style window goes out of range
+# - false: clamp style window to valid history
+strict_style_window = true

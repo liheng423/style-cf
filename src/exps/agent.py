@@ -11,7 +11,7 @@ from torch.nn import Module
 from .datahandle.datascalers import DataScaler
 from .utils.utils_kine import _predict_kinematics
 from .utils.utils import SliceableTensorDict
-from ..stylecf.schema import TensorNames
+from ..schema import TensorNames
 
 
 

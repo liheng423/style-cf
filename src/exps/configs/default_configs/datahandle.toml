@@ -1,0 +1,25 @@
+filter_names = [
+  "time_headway_check",
+  "all_same_leader",
+  "speed_in_range",
+  "veh_exist",
+  "space_in_range",
+  "inconsistent",
+]
+
+[data_filter_config]
+acceleration_range = [-6, 6]
+speed_range = [0, 30]
+allow_leader_lc = false
+spacing_range = [10, 100]
+length_thres = 6
+min_self_id_samples = 1
+dtw_range = [0, 30]
+thw = [0, 2]
+pos_tol_range = [0, 6]
+r_time_range = [0, 2]
+spd_tol_range = [0, 100]
+
+
+
+

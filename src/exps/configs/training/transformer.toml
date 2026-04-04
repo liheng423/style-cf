@@ -1,0 +1,7 @@
+[train_entry_config]
+target_model = "transformer"
+
+[transformer_train_config]
+best_model_path_template = "models/transfollower-best-{timestamp}.pth"
+transformer_num_encoder_layers = 1
+transformer_num_decoder_layers = 1

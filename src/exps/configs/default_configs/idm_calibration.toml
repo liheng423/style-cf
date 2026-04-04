@@ -1,0 +1,12 @@
+[idm_calibration_config]
+downsample = 5
+loss = "IDMLoss.acc_dis_mse"
+
+update_func = "idm_update_func"
+concat = "idm_concat"
+start_step = 5
+scaler = "DataScaler"
+pred_func = "DEFAULT_PRED_FUNC"
+mask = "DEFAULT_MASK"
+save_path = "./data/idm_calibration"
+device = "cpu"

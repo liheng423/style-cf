@@ -7,7 +7,7 @@ import torch
 from tensordict import TensorDict
 from torch.utils.data import DataLoader, Dataset
 
-from ...stylecf.schema import TensorNames
+from ...schema import TensorNames
 from ...utils.logger import get_with_warn
 from ..utils.utils import SliceableTensorDict
 
@@ -155,20 +155,26 @@ class StyledTransfollowerDataset(TransformerDataset):
                 )
             self.sample_self_ids = torch.tensor(sample_self_ids, dtype=torch.long)
 
-        self.style_window_mode = str(data_config.get("style_window_mode", "before_prediction_start")).lower()
-        self.strict_style_window = bool(data_config.get("strict_style_window", True))
-        self.sample_dt = float(data_config.get("sample_dt", 0.1))
+        self.style_window_mode = str(data_config.get("style_window_mode", "before_pred_start")).lower()
+        self.strict_style_window = bool(data_config.get("strict_style_window"))
+        self.sample_dt = float(data_config.get("sample_dt"))
+        supported_modes = {"before_pred_start", "before_hist_start"}
+        if self.style_window_mode not in supported_modes:
+            raise ValueError(
+                f"Unsupported style_window_mode: {self.style_window_mode}. "
+                "Expected one of: before_pred_start, before_hist_start."
+            )
 
-        window_secs = data_config.get("style_window_before_seconds", [20.0, 30.0])
+        window_secs = data_config.get("style_window_before_seconds")
         if isinstance(window_secs, (list, tuple)) and len(window_secs) == 2:
             near_s, far_s = float(window_secs[0]), float(window_secs[1])
         else:
-            near_s, far_s = 20.0, 30.0
+            raise ValueError("Expected a list or tuple of two floats: [near_seconds, far_seconds].")
         near_s, far_s = min(near_s, far_s), max(near_s, far_s)
         self.style_near_steps = max(1, int(round(near_s / self.sample_dt)))
         self.style_far_steps = max(self.style_near_steps + 1, int(round(far_s / self.sample_dt)))
 
-        if self.style_window_mode == "before_prediction_start" and self.strict_style_window:
+        if self.strict_style_window:
             self.indices = [
                 (i, t)
                 for (i, t) in self.indices
@@ -177,21 +183,19 @@ class StyledTransfollowerDataset(TransformerDataset):
             if not self.indices:
                 raise ValueError(
                     "No valid windows after applying strict style window "
-                    f"[{near_s}, {far_s}] seconds before prediction start."
+                    f"[{near_s}, {far_s}] with style_window_mode='{self.style_window_mode}'."
                 )
 
     def _style_window_bounds(self, t: int) -> tuple[int, int]:
-        pred_start = t + self.seq_len
-        start = pred_start - self.style_far_steps
-        end = pred_start - self.style_near_steps
+        if self.style_window_mode == "before_pred_start":
+            anchor = t + self.seq_len
+        else:
+            anchor = t
+        start = anchor - self.style_far_steps
+        end = anchor - self.style_near_steps
         return start, end
 
     def _slice_style(self, i: int, t: int) -> torch.Tensor:
-        if self.style_window_mode == "sliding":
-            return self.x_style[i, t : t + self.seq_len, :]
-        if self.style_window_mode != "before_prediction_start":
-            raise ValueError(f"Unsupported style_window_mode: {self.style_window_mode}")
-
         start, end = self._style_window_bounds(t)
         if start < 0 or end <= start:
             if self.strict_style_window:

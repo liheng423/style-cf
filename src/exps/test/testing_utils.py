@@ -6,14 +6,14 @@ import torch
 import torch.nn.functional as F
 from tensordict import TensorDict
 
-from ..datahandle import dataset as dataset_utils
+from ..datahandle import datasets as dataset_utils
 from ..datahandle.stylebuilder import build_style_tokens_from_datapack
 from ..models.lstm import CF_LSTM
 from ..models.stylecf import EmbeddingStyleTransformer, StyleTransformer
 from ..models.transfollower import Transfollower
 from ..utils.utils import SliceableTensorDict, drop_tensor_names, stack_name
 from ...schema import CFNAMES as CF, FEATNAMES as FEAT
-from ...stylecf.schema import TensorNames
+from ...schema import TensorNames
 
 
 def concat_time(tensor_list):

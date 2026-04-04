@@ -1,0 +1,141 @@
+
+##################################################################
+# LSTM architecture
+
+[lstm_arch_config]
+model_name = "CF_LSTM"
+num_feature = "auto"
+pred_step = "auto"
+batch_norm = false
+bidirectional = false
+dropout = 0.0
+regular_output = false
+regular_range = [-6, 6]
+regular_func = "tanh"
+activation_func = "Sigmoid"
+activate_name = "sigmoid"
+state_num_feat = 10
+
+[lstm_data_config.model_io]
+seq_len = 40
+pred_len = 20
+
+[lstm_data_config.dataset_config]
+# stride unit is sample steps (not seconds).
+# Real time (seconds) = stride * sample_dt.
+stride = 20
+
+[lstm_data_config.runtime_components]
+scaler = "StandardScaler"
+dataset = "LSTMDataset"
+
+[lstm_data_config.x_groups.inputs]
+features = ["SELF_V", "DELTA_X", "DELTA_V", "SELF_L", "LEAD_L"]
+
+[lstm_data_config.y_groups.eval]
+features = ["SELF_X", "SELF_V", "SELF_A", "DELTA_X", "LEAD_X"]
+
+##############################################################################
+
+[idm_arch_config.model_io]
+# downsampling
+# TODO: To check if the downsampling works
+pred_horizon = 5
+historic_step = 5
+
+
+[idm_calibration_config.x_groups.x]
+features = ["SELF_V", "LEAD_V", "DELTA_X"]
+
+[idm_calibration_config.y_groups.y]
+features = ["SELF_X", "SELF_V", "SELF_A"]
+
+
+############################################################################
+
+[transfollower_data_config.model_io]
+# All *_len below are in sample steps (not seconds).
+# Real time (seconds) = steps * sample_dt.
+seq_len = 60
+label_len = 40
+pred_len = 40
+
+
+[transfollower_data_config.x_groups.enc_x]
+features = ["SELF_V", "DELTA_X", "DELTA_V", "SELF_L", "LEAD_L"]
+transform = true
+
+[transfollower_data_config.x_groups.dec_x]
+features = ["SELF_V", "LEAD_V"]
+transform = true
+
+[transfollower_data_config.y_groups.y_seq]
+features = ["SELF_X", "SELF_V", "SELF_A", "DELTA_X", "LEAD_X"]
+
+
+
+#############################################################################
+
+[style_data_config.model_io]
+# All *_len below are in sample steps (not seconds).
+# Real time (seconds) = steps * sample_dt.
+seq_len = 60 # timesteps
+label_len = 40 # timesteps
+pred_len = 40 # timesteps
+# style window can be determined by external interfaces (in train, test files)
+
+[style_data_config.runtime_components]
+scaler = "StandardScaler"
+dataset = "StyledTransfollowerDataset"
+model_name = "StyleTransformer"
+
+[style_data_config.x_groups.enc_x]
+features = ["SELF_V", "DELTA_X", "DELTA_V", "SELF_L", "LEAD_L"]
+transform = true
+
+[style_data_config.x_groups.dec_x]
+features = ["SELF_V", "LEAD_V"]
+transform = true
+
+[style_data_config.x_groups.style]
+features = ["REACT", "THW", "DELTA_X", "SELF_V"]
+transform = true
+
+[style_data_config.y_groups.y_seq]
+features = ["SELF_X", "SELF_V", "SELF_A", "DELTA_X", "LEAD_X"]
+
+
+
+###########################################################################
+# For Rolling Window Prediction Initialization #
+
+[style_agent]
+model = "StyleTransformer"
+pred_func = "DEFAULT_PRED_FUNC"
+update_func = "style_update_func"
+mask = "stylecf_mask"
+concat_func = "stack_name"
+
+[lstm_agent]
+model = "CF_LSTM"
+pred_func = "DEFAULT_PRED_FUNC"
+update_func = "lstm_update_func"
+mask = "DEFAULT_MASK"
+concat_func = "stack_name"
+
+[transformer_agent]
+model = "Transfollower"
+pred_func = "DEFAULT_PRED_FUNC"
+update_func = "style_update_func"
+mask = "transformer_mask"
+concat_func = "stack_name"
+
+[idm_agent]
+model = "IDM"
+pred_func = "DEFAULT_PRED_FUNC"
+update_func = "idm_update_func"
+concat_func = "idm_concat"
+mask = "DEFAULT_MASK"
+
+
+

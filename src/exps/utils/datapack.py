@@ -7,6 +7,19 @@ import numpy as np
 from .utils_kine import _predict_kinematics_np
 from ...schema import CFNAMES as CF
 
+BASE_CF_NAMES = {
+    CF.SELF_ID: 0,
+    CF.SELF_X: 1,
+    CF.SELF_V: 2,
+    CF.SELF_A: 3,
+    CF.SELF_L: 4,
+    CF.LEAD_ID: 5,
+    CF.LEAD_X: 6,
+    CF.LEAD_V: 7,
+    CF.LEAD_A: 8,
+    CF.LEAD_L: 9,
+}
+
 
 class SampleDataPack:
     """
@@ -44,6 +57,17 @@ class SampleDataPack:
 
     def head(self, n: int) -> "SampleDataPack":
         return SampleDataPack(self.data[:n], self.names.copy(), self.rise, self.kph, self.kilo_norm, self.dt)
+
+    def select_rows(self, indices) -> "SampleDataPack":
+        row_idx = np.asarray(indices, dtype=np.int64)
+        return SampleDataPack(
+            self.data[row_idx].copy(),
+            self.names.copy(),
+            self.rise,
+            self.kph,
+            self.kilo_norm,
+            self.dt,
+        )
 
     def __getitem__(self, key) -> np.ndarray:
         if isinstance(key, tuple) and len(key) == 3:
@@ -154,22 +178,9 @@ class SampleDataPack:
 
 
 def load_zen_data(path, rise, in_kph=False, kilo_norm=False):
-    names = {
-        CF.SELF_ID: 0,
-        CF.SELF_X: 1,
-        CF.SELF_V: 2,
-        CF.SELF_A: 3,
-        CF.SELF_L: 4,
-        CF.LEAD_ID: 5,
-        CF.LEAD_X: 6,
-        CF.LEAD_V: 7,
-        CF.LEAD_A: 8,
-        CF.LEAD_L: 9,
-    }
-
     data: np.ndarray = np.load(path, allow_pickle=True).astype(np.float32)
     print(f"Data Shape: {data.shape}")
-    return SampleDataPack(data, names, rise=rise, kph=in_kph, kilo_norm=kilo_norm, dt=0.1)
+    return SampleDataPack(data, BASE_CF_NAMES.copy(), rise=rise, kph=in_kph, kilo_norm=kilo_norm, dt=0.1)
 
 
 def build_id_datapack(
@@ -210,4 +221,4 @@ def build_id_datapack(
     return id_datapack
 
 
-__all__ = ["SampleDataPack", "build_id_datapack", "load_zen_data"]
+__all__ = ["BASE_CF_NAMES", "SampleDataPack", "build_id_datapack", "load_zen_data"]

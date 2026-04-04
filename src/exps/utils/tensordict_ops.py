@@ -6,7 +6,7 @@ import torch
 from tensordict import TensorDict
 from torch.utils.data._utils.collate import default_collate
 
-from ...stylecf.schema import TensorNames
+from ...schema import TensorNames
 
 
 def _stack_named_tensors(tensors):

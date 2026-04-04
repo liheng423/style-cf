@@ -1,0 +1,14 @@
+[rawdata]
+extractor = "hh_h5_list"
+datapath = [
+  "data/data/HHDataTrain",
+  "data/data/HHDataVal",
+]
+rise = true
+in_kph = false
+kilo_norm = true
+hh_window_len = 140 # timestep 
+hh_window_jump = 40 # timestep
+hh_dt = 0.1
+h5_key = ""
+

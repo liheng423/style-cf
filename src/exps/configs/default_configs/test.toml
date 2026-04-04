@@ -1,0 +1,30 @@
+[test_config]
+rawdata_config = "hh_h5_list.toml"
+device = "cpu"
+idm_state = [24.68, 1.67, 1.37, 1.68, 2.46]
+lstm_state_path = "data/saved_models/lstm.pth"
+style_state_path = "models/stylecf-single-plus-hh-20260326-190841.pth"
+transformer_state_path = "data/saved_models/transfollower.pth"
+transformer_num_encoder_layers = 1
+transformer_num_decoder_layers = 1
+use_saved_split = true
+split_index_path = "data/saved_splits/stylecf_group_split-tol-2s"
+saved_split_strict = false
+enabled_models = ["stylecf", "lstm", "transformer", "idm", "stylecf_shuffle", "stylecf_global"]
+output_dir = "models/test_results"
+save_results = true
+plot_results = false
+
+[test_config.style_token]
+# Style token is built from d_style (defined by eval_time.style_window) by default.
+style_token_mode = "per_sample"
+style_dummy_seed = 42
+style_shuffle_seed = 42
+
+[test_config.eval_time]
+# style_window is the source range for style-token extraction.
+# test_window is the rollout/evaluation range.
+use_split_windows = true
+style_window = [0, 50]
+test_window = [50, 140]
+start_time = 0

@@ -1,8 +1,7 @@
 import numpy as np
 from typing import Callable, List
-from ..utils.utils import SampleDataPack
+from ..utils.datapack import SampleDataPack
 from ...schema import CFNAMES as CF
-from tslearn.metrics import dtw, dtw_path
 
 
 def mask_min_self_id_samples(datapack: SampleDataPack, min_samples: int) -> np.ndarray:
@@ -55,6 +54,8 @@ class CFFilter:
         return np.all(id_self != -1, axis=1) & np.all(id_lead != -1, axis=1)
     
     def dtw_in_range(self) -> np.ndarray:
+        from tslearn.metrics import dtw
+
         values = []
         for idx in range(self.data.shape[0]):
             v_self = self.data[idx, :, self.names[CF.SELF_V]]
@@ -67,6 +68,8 @@ class CFFilter:
         return (values >= lower) & (values <= upper)
     
     def reaction_in_range(self) -> np.ndarray:
+        from tslearn.metrics import dtw_path
+
         values = []
         for idx in range(self.data.shape[0]):
             v_self = self.data[idx, :, self.names[CF.SELF_V]]
